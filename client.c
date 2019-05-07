@@ -11,17 +11,23 @@
 int main(void)
 {
     int fd, fd1;
-    pid_t pid = getpid();
-    char fifoName[]="/tmp/secure_pid";
-   // sprintf(fifoName, "%d", pid);
-    mkfifo(fifoName,0660);
+    pid_t pidN = getpid();
+    char fifoName[]="/tmp/secure_";
+    char pid[12];
+    sprintf(pid, "%d", pidN);
+        printf("pid: %s \n", pid);
+    strcat(fifoName, pid);
+        printf("fifoname: %s \n", fifoName);
+
+    mkfifo("/tmp/secure_srv",0660);
     char num1[10];
     char num2[10];
 
     do{
-    fd=open(fifoName, O_WRONLY);
+    fd=open("/tmp/secure_srv", O_WRONLY);
     printf("x y ? ");
     scanf("%s %s", num1, num2);
+    write(fd, pid, sizeof(pid));
     write(fd, num1, sizeof(num1));
     write(fd, num2, sizeof(num2));
     close(fd);
@@ -30,12 +36,13 @@ int main(void)
     int mult;
     int di;
     do {
-        fd1=open("/tmp/secure_srv", O_RDONLY);
+        fd1=open(fifoName, O_RDONLY);
         if (fd1==-1) sleep(1);
-    } while (fd1==-1);    read(fd, &sum, sizeof(sum));
-    read(fd, &diff, sizeof(diff));
-    read(fd, &mult, sizeof(mult));
-    read(fd, &di, sizeof(di));
+    } while (fd1==-1);    
+    read(fd1, &sum, sizeof(sum));
+    read(fd1, &diff, sizeof(diff));
+    read(fd1, &mult, sizeof(mult));
+    read(fd1, &di, sizeof(di));
 
     printf("Parent:  \n");
     printf("Sum: %d\n", sum);
