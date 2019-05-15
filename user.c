@@ -11,15 +11,12 @@
 #define READ 0
 #define WRITE 1
 
-void getAccountArgs(char *args, char *acc_args[])
+void getAccountArgs(char* args, char* acc_args[])
 {
-    printf("dsakdal \n");
-    char *id = NULL;
+   char *id = NULL;
 
-    printf("XXXXXXXXXXXXXXXaquiXXXXXXXXXXXXXXXXXXXXXXXXXx");
     char * balance = NULL;
     char * password = NULL;
-    printf("XXXXXXXXXXXXXXXaquiXXXXXXXXXXXXXXXXXXXXXXXXXx");
     for(int i=0; i < strlen(args); i++){
         printf("%d", i);
         if(args[i] == ' ')
@@ -110,15 +107,13 @@ int main(int argc, char *argv[])
 
     int operation = atoi(argv[4]);
 
-    char * args = argv[5];
+    char *args = argv[5];
 
     sprintf(pid, "%d", pidN);
     printf("pid: %s \n", pid);
     strcpy(fifoName, USER_FIFO_PATH_PREFIX);
-
     strcat(fifoName, pid);
     printf("fifoname: %s \n", fifoName);
-
     printf("\nid: %d\n", id);
     printf("password: %s\n", password);
     printf("delay: %d\n", delay);
@@ -126,7 +121,6 @@ int main(int argc, char *argv[])
     printf("args: %s\n", args);
 
     mkfifo(SERVER_FIFO_PATH,0660);
-
     fd1=open(SERVER_FIFO_PATH, O_WRONLY);
 
     req_header_t req_header;
@@ -142,14 +136,14 @@ int main(int argc, char *argv[])
 
     if(operation == 0){
 
-        // req_create_account_t account;
+        req_create_account_t account;
         
         char** acc_args = NULL;
-        getAccountArgs(argv[5], acc_args);
-        //account.account_id = *(int*)acc_args[0];
-        // account.balance = *(int*)acc_args[1];
-        // strcpy(account.password,acc_args[2]);
-        //req_value.create = account;
+        getAccountArgs(args, acc_args);
+        account.account_id = *(int*)acc_args[0];
+        account.balance = *(int*)acc_args[1];
+        strcpy(account.password,acc_args[2]);
+        req_value.create = account;
     }
     else if (operation == 2){
 
@@ -167,14 +161,27 @@ int main(int argc, char *argv[])
     request.value = req_value;
     request.length = sizeof(req_value);
 
+    int logfile= open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logRequest(logfile, pidN, &request);
+    close(logfile);
+
     write(fd1, &request, sizeof(request));
     close(fd1);
-      
+
+
+    // receive answer     
     do {
         fd2=open(fifoName, O_RDONLY);
         if (fd2 == -1) sleep(1);
     } while (fd2 == -1);
 
+    tlv_reply_t reply;
+    read(fd2, &reply, sizeof(tlv_reply_t));
+
+    int logfile= open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logReply(logfile, pidN, &reply);
+    close(logfile);
+    
     close(fd2);
     return 0;
 }
