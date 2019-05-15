@@ -2,57 +2,62 @@
 
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
+int slog;
+
 int main(int argc, char *argv[])
 {
+  sem_t* sem;
+  sem= sem_open(SEM_NAME, O_CREAT, 0660);
+
   mkfifo(SERVER_FIFO_PATH,O_RDONLY);
-    if (argc < 2)
-    {
-      printf("Insufficient number of arguments\n");
-      return 1;
-    }
+  if (argc < 2)
+  {
+    printf("Insufficient number of arguments\n");
+    return 1;
+  }
 
-    // int fd1, fd2;
-    // char fifoName[]="/tmp/secure_";
-    // char pid[WIDTH_ID + 1];
+  // int fd1, fd2;
+  // char fifoName[]="/tmp/secure_";
+  // char pid[WIDTH_ID + 1];
 
-    pthread_t threads[atoi(argv[1])];
+  pthread_t threads[atoi(argv[1])];
 
-    int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    logDelay(logfile, 0,0);
-    close(logfile);
+  int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logDelay(logfile, 0,0);
+  close(logfile);
 
-    if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
-      return 1; 
+  if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
+    return 1; 
 
-    int id[atoi(argv[1])];
-    for(int i = 1; i <= atoi(argv[1]); i++)
-    {
-      id[i-1]=i;
-      pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
-    }
+  int id[atoi(argv[1])];
+  for(int i = 1; i <= atoi(argv[1]); i++)
+  {
+    id[i-1]=i;
+    pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
+  }
 
-    for(int i = 1; i <= atoi(argv[1]); i++)
-      pthread_join(threads[i-1], NULL);
+  for(int i = 1; i <= atoi(argv[1]); i++)
+    pthread_join(threads[i-1], NULL);
 
-    create_admin_account(argv[2]);
-    
-    printf("id: %d\n", accounts[0].account_id);
-    printf("balance: %d\n", accounts[0].balance);
-    printf("salt: %s\n", accounts[0].salt);
-    printf("hash: %s\n", accounts[0].hash);
-        
-      // read(fd1, pid, sizeof(pid));
-      // close(fd1);
-      // strcat(fifoName, pid);
-      // printf("fifoName: %s\n", fifoName);
+  create_admin_account(argv[2]);
+  
+  printf("id: %d\n", accounts[0].account_id);
+  printf("balance: %d\n", accounts[0].balance);
+  printf("salt: %s\n", accounts[0].salt);
+  printf("hash: %s\n", accounts[0].hash);
       
-      // mkfifo(fifoName,0660);
-      // fd2= open(fifoName, O_WRONLY);
-    
-      // close(fd2);
-      // unlink(fifoName);
+  // read(fd1, pid, sizeof(pid));
+  // close(fd1);
+  // strcat(fifoName, pid);
+  // printf("fifoName: %s\n", fifoName);
+  
+  // mkfifo(fifoName,0660);
+  // fd2= open(fifoName, O_WRONLY);
 
-    return 0; 
+  // close(fd2);
+  // unlink(fifoName);
+
+  return 0; 
 }
 
 char * generate_salt(){
@@ -200,7 +205,12 @@ int create_admin_account(const char *password){
   if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN + 1)
     return 1;
 
-  return create_account(0, password, 0);
+  int ret = create_account(0, password, 0);
+
+  if (ret == 0)
+    return logAccountCreation(slog, 0, &accounts[0]);
+  else
+    return ret;
 }
 
 int create_user_account(uint32_t id, const char *password, uint32_t balance){
