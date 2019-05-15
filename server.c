@@ -7,6 +7,7 @@ int main(int argc, char *argv[])
     int fd1, fd2;
     char fifoName[]="/tmp/secure_";
     char pid[WIDTH_ID + 1];
+    pthread_t threads[atoi(argv[1])];
 
     if (argc < 2)
       {
@@ -14,15 +15,19 @@ int main(int argc, char *argv[])
         return 1;
       }
     else{
-      create_admin_account(argv[2]);
+      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logDelay(logfile, 0,0);
 
-      if(*argv[1] < 1 || *argv[1] > MAX_BANK_OFFICES)
-        return 1;
+      if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
+        return 1; 
 
-      for(int i = 0; i < *argv[1]; i++){
-        pthread_t t;
-        //pthread_create(&t, NULL, NULL, NULL);
+      int id[atoi(argv[1])];
+      for(int i = 1; i <= atoi(argv[1]); i++){
+        id[i-1]=i;
+        pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
       }
+
+      create_admin_account(argv[2]);
     }
     
     printf("id: %d\n", accounts[0].account_id);
@@ -48,7 +53,10 @@ int main(int argc, char *argv[])
       close(fd2);
 
     } while(true);
-    
+      
+      // for(int i = 1; i <= *argv[1]; i++){
+      //   pthread_join(threads[i-1], NULL);
+      // }
     return 0; 
 }
 
@@ -60,7 +68,6 @@ char * generate_salt(){
   srand(time(0));
 
   for(int i = 0; i < 64; i++){
-    char character[1];
     salt[i] = characters[rand() % 16];
   }
 
@@ -69,6 +76,31 @@ char * generate_salt(){
 
 bool id_in_use(uint32_t id){
   return &accounts[id] != NULL;
+}
+
+void* bankOffice(void * arg)
+{
+  bankOfficeOpen(*(int*)arg);
+  int id = *(int *)arg;
+  printf("id: %d, tid: %ld \n", id, pthread_self());
+  bankOfficeClose(*(int*)arg);
+  return NULL;
+}
+
+void bankOfficeOpen(int id)
+{
+  int logfile;
+  logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logBankOfficeOpen(logfile, id, pthread_self());
+  close(logfile);
+}
+
+void bankOfficeClose(int id)
+{
+  int logfile;
+  logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logBankOfficeClose(logfile, id, pthread_self());
+  close(logfile);
 }
 
 int create_account(uint32_t id, char *password, uint32_t balance)

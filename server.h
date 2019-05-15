@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <openssl/sha.h>
+#include <pthread.h>
 
 #include "log.c"
 
@@ -16,6 +17,12 @@
 char *generate_salt();
 
 bool id_in_use(uint32_t id);
+
+void * bankOffice(void * arg);
+
+void bankOfficeOpen(int id);
+
+void bankOfficeClose(int id);
 
 int create_account(uint32_t id, char *password, uint32_t balance);
 
