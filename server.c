@@ -1,62 +1,56 @@
 #include "server.h"
 
-struct bank_account accounts[MAX_BANK_ACCOUNTS];
+bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
 int main(int argc, char *argv[])
 {
-    int fd1, fd2;
-    char fifoName[]="/tmp/secure_";
-    char pid[WIDTH_ID + 1];
+  mkfifo(SERVER_FIFO_PATH,O_RDONLY);
+    if (argc < 2)
+    {
+      printf("Insufficient number of arguments\n");
+      return 1;
+    }
+
+    // int fd1, fd2;
+    // char fifoName[]="/tmp/secure_";
+    // char pid[WIDTH_ID + 1];
     pthread_t threads[atoi(argv[1])];
 
-    if (argc < 2)
-      {
-        printf("Insufficient number of arguments\n");
-        return 1;
-      }
-    else{
-      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-      logDelay(logfile, 0,0);
+    int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logDelay(logfile, 0,0);
+    close(logfile);
 
-      if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
-        return 1; 
+    if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
+      return 1; 
 
-      int id[atoi(argv[1])];
-      for(int i = 1; i <= atoi(argv[1]); i++){
-        id[i-1]=i;
-        pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
-      }
-
-      create_admin_account(argv[2]);
+    int id[atoi(argv[1])];
+    for(int i = 1; i <= atoi(argv[1]); i++)
+    {
+      id[i-1]=i;
+      pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
     }
+
+    for(int i = 1; i <= atoi(argv[1]); i++)
+      pthread_join(threads[i-1], NULL);
+
+    create_admin_account(argv[2]);
     
     printf("id: %d\n", accounts[0].account_id);
     printf("balance: %d\n", accounts[0].balance);
     printf("salt: %s\n", accounts[0].salt);
     printf("hash: %s\n", accounts[0].hash);
-
-    do{
-      do {
-          fd1=open("/tmp/secure_srv", O_RDONLY);
-          if (fd1 == -1) sleep(1);
-      } while (fd1 == -1);
         
-      read(fd1, pid, sizeof(pid));
-      close(fd1);
-      strcat(fifoName, pid);
-      printf("fifoName: %s\n", fifoName);
+      // read(fd1, pid, sizeof(pid));
+      // close(fd1);
+      // strcat(fifoName, pid);
+      // printf("fifoName: %s\n", fifoName);
       
-      mkfifo(fifoName,0660);
-      fd2= open(fifoName, O_WRONLY);
-      printf("SON: Calculating...\n");
+      // mkfifo(fifoName,0660);
+      // fd2= open(fifoName, O_WRONLY);
     
-      close(fd2);
+      // close(fd2);
+      // unlink(fifoName);
 
-    } while(true);
-      
-      // for(int i = 1; i <= *argv[1]; i++){
-      //   pthread_join(threads[i-1], NULL);
-      // }
     return 0; 
 }
 
@@ -75,15 +69,79 @@ char * generate_salt(){
 }
 
 bool id_in_use(uint32_t id){
-  return &accounts[id] != NULL;
+  return (&accounts[id] != NULL);
 }
 
+int authenticate(uint32_t accountID, const char password[])
+{
+  char* pass_salt = NULL;
+  if(!id_in_use(accountID))
+    return RC_ID_NOT_FOUND;
+  strcpy(pass_salt, password);
+  strcpy(pass_salt, accounts[accountID].salt);
+  if(getSha256(pass_salt)==accounts[accountID].hash)
+    return RC_OK;
+  else
+    return RC_LOGIN_FAIL;
+}
+
+int processRequest(int operation, const req_value_t* request)
+{
+  uint32_t accountID = request->header.account_id;
+  if(operation == OP_CREATE_ACCOUNT)
+  {
+    if(accountID != 0)
+      return RC_OP_NALLOW;
+    if(authenticate(accountID, request->header.password)==0)
+    {
+      create_user_account(request->create.account_id, request->create.password, request->create.balance);
+      int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
+      logAccountCreation(logfile, pthread_self(), &accounts[accountID]);
+      close(logfile);
+    }
+    else
+      return RC_LOGIN_FAIL;
+  }
+  if(operation == OP_BALANCE)
+  {
+    if(accountID == 0)
+      return RC_OP_NALLOW;
+    if(authenticate(accountID, request->header.password)==0)
+    {
+        int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
+        close(logfile);
+    }
+  }
+  if(operation == OP_TRANSFER)
+  {
+    if(accountID == 0)
+      return RC_OP_NALLOW;
+  }
+  if(operation == OP_SHUTDOWN)
+  {
+    if(accountID != 0)
+      return RC_OP_NALLOW;
+  }
+  return RC_OK;
+}
 void* bankOffice(void * arg)
 {
-  bankOfficeOpen(*(int*)arg);
   int id = *(int *)arg;
-  printf("id: %d, tid: %ld \n", id, pthread_self());
-  bankOfficeClose(*(int*)arg);
+  char *operation = NULL;
+  uint32_t* length = 0;
+  req_value_t* value = NULL;
+  bankOfficeOpen(id);
+  int fd;
+  do{
+    fd=open(SERVER_FIFO_PATH, O_RDONLY);
+    if(fd==-1) sleep(1);
+  } while(fd == -1);
+  
+  read(fd, operation, sizeof(op_type_t));
+  read(fd, length, sizeof(uint32_t));
+  read(fd, value, sizeof(*length));
+  processRequest(atoi(operation), value);
+  bankOfficeClose(id);
   return NULL;
 }
 
@@ -103,7 +161,7 @@ void bankOfficeClose(int id)
   close(logfile);
 }
 
-int create_account(uint32_t id, char *password, uint32_t balance)
+int create_account(uint32_t id, const char *password, uint32_t balance)
 {
   struct bank_account new;
 
@@ -127,14 +185,14 @@ int create_account(uint32_t id, char *password, uint32_t balance)
   return 0;
 }
 
-int create_admin_account(char *password){
+int create_admin_account(const char *password){
   if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN + 1)
     return 1;
 
   return create_account(0, password, 0);
 }
 
-int create_user_account(uint32_t id, char *password, uint32_t balance){
+int create_user_account(uint32_t id, const char *password, uint32_t balance){
   if(!id_in_use(id))
     return RC_ID_IN_USE;
   
@@ -168,7 +226,7 @@ char *getSha256(char *password)
     dup2(fd1[WRITE], STDOUT_FILENO);
     close(fd1[READ]);
     execlp("echo", "echo", "-n", password, NULL);
-    fprintf(stderr, "Failed to execute sha256sum\n");
+    fprintf(stderr, "Failed to execute echo\n");
     exit(1);
   }
   else if (pid1 > 0)
@@ -181,8 +239,10 @@ char *getSha256(char *password)
     {
       dup2(fd2[WRITE], STDOUT_FILENO);
       waitpid(pid1, &status, 0);
-      execlp("sha256sum", "sha256sum", NULL);
       close(fd1[READ]);
+      execlp("sha256sum", "sha256sum", NULL);
+      fprintf(stderr, "Failed to execute echo\n");
+      exit(1);
     }
     else if (pid2 > 0)
     {

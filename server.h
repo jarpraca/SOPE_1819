@@ -24,10 +24,10 @@ void bankOfficeOpen(int id);
 
 void bankOfficeClose(int id);
 
-int create_account(uint32_t id, char *password, uint32_t balance);
+int create_account(uint32_t id, const char *password, uint32_t balance);
 
-int create_admin_account(char *password);
+int create_admin_account(const char *password);
 
-int create_user_account(uint32_t id, char *password, uint32_t balance);
+int create_user_account(uint32_t id, const char *password, uint32_t balance);
 
 char *getSha256(char *filename);
