@@ -2,6 +2,8 @@
 
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
+int slog;
+
 int main(int argc, char *argv[])
 {
   mkfifo(SERVER_FIFO_PATH,O_RDONLY);
@@ -40,16 +42,16 @@ int main(int argc, char *argv[])
     printf("salt: %s\n", accounts[0].salt);
     printf("hash: %s\n", accounts[0].hash);
         
-      // read(fd1, pid, sizeof(pid));
-      // close(fd1);
-      // strcat(fifoName, pid);
-      // printf("fifoName: %s\n", fifoName);
-      
-      // mkfifo(fifoName,0660);
-      // fd2= open(fifoName, O_WRONLY);
+    // read(fd1, pid, sizeof(pid));
+    // close(fd1);
+    // strcat(fifoName, pid);
+    // printf("fifoName: %s\n", fifoName);
     
-      // close(fd2);
-      // unlink(fifoName);
+    // mkfifo(fifoName,0660);
+    // fd2= open(fifoName, O_WRONLY);
+  
+    // close(fd2);
+    // unlink(fifoName);
 
     return 0; 
 }
@@ -189,7 +191,12 @@ int create_admin_account(const char *password){
   if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN + 1)
     return 1;
 
-  return create_account(0, password, 0);
+  int ret = create_account(0, password, 0);
+
+  if (ret == 0)
+    return logAccountCreation(slog, 0, &accounts[0]);
+  else
+    return ret;
 }
 
 int create_user_account(uint32_t id, const char *password, uint32_t balance){

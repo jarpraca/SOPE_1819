@@ -4,57 +4,81 @@
 #include <sys/stat.h>
 #include <sys/file.h> 
 #include <string.h>
+#include <stdlib.h>
+#include "sope.h"
 
 #define READ 0
 #define WRITE 1
 
-int main(void)
+int main(int argc, char *argv[])
 {
-    int fd, fd1;
+    int fd1, fd2;
     pid_t pidN = getpid();
     char fifoName[]="/tmp/secure_";
-    char pid[7];
+    char pid[WIDTH_ID];
+
+    if (argc < 5){
+        printf("Insufficient number of arguments\n");
+        return 1;
+    }
+
+    if (atoi(argv[1]) < 0 || atoi(argv[1]) > 4095)
+    {
+        printf("id must be a number between 0 and 4095\n");
+        return 1;
+    }
+
+    int id = atoi(argv[1]);
+
+    if (strlen(argv[2]) <= MIN_PASSWORD_LEN || strlen(argv[2]) > MAX_PASSWORD_LEN + 1 )
+    {
+        printf("password must have between 8 and 20 characters\n");
+        return 1;
+    }
+
+    char * password = argv[2];
+
+    if (atoi(argv[3]) < 0)
+    {
+        printf("delay cannot be a negative number\n");
+        return 1;
+    }
+
+    int delay = atoi(argv[3]);
+
+    if(atoi(argv[4]) < 0 || atoi(argv[4]) > 4){
+        printf("operation must correspond to a number between 0 and 4\n");
+        return 1;
+    }
+
+    int operation = atoi(argv[4]);
+
+    char * args = argv[5];
 
     sprintf(pid, "%d", pidN);
     printf("pid: %s \n", pid);
     strcat(fifoName, pid);
     printf("fifoname: %s \n", fifoName);
 
+    printf("\nid: %d\n", id);
+    printf("password: %s\n", password);
+    printf("delay: %d\n", delay);
+    printf("operation: %d\n", operation);
+    printf("args: %s\n", args);
+
     mkfifo("/tmp/secure_srv",0660);
     char num1[10];
     char num2[10];
 
-    do{
-        fd=open("/tmp/secure_srv", O_WRONLY);
-        printf("x y ? ");
-        scanf("%s %s", num1, num2);
-        write(fd, pid, sizeof(pid));
-        write(fd, num1, sizeof(num1));
-        write(fd, num2, sizeof(num2));
-        close(fd);
+    fd1=open("/tmp/secure_srv", O_WRONLY);
 
-        int sum;
-        int diff;
-        int mult;
-        int di;
+    do {
+        fd2=open(fifoName, O_RDONLY);
+        if (fd2 == -1) sleep(1);
+    } while (fd2 == -1);
 
-        do {
-            fd1=open(fifoName, O_RDONLY);
-            if (fd1 == -1) sleep(1);
-        } while (fd1 == -1);  
+    printf("PARENT:\n");
+    close(fd2);
 
-        read(fd1, &sum, sizeof(sum));
-        read(fd1, &diff, sizeof(diff));
-        read(fd1, &mult, sizeof(mult));
-        read(fd1, &di, sizeof(di));
-
-        printf("PARENT:\n");
-        printf("Sum: %d\n", sum);
-        printf("Diff: % d\n", diff);
-        printf("Mult: %d\n", mult);
-        printf("Di: %d\n", di);
-        close(fd1);
-    } while(num1 != "0" || num2 != "0");
-    
     return 0;
 }
