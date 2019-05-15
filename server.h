@@ -10,7 +10,8 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <sys/mman.h>
-
+#include <errno.h>
+#include <fcntl.h>
 #include "log.c"
 
 #define READ 0

@@ -1,51 +1,58 @@
 #include "server.h"
 
-
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
 int slog;
 
 int main(int argc, char *argv[])
 {
-
-  int shmfd;
+  int shmfd, fdFIFO;
   char *shm, *s;
+
+  if(mkfifo(SERVER_FIFO_PATH,0660)<0)
+    if (errno==EEXIST) 
+      printf("FIFO '/tmp/secure_srv' already exists\n");
+    else 
+      printf("Can't create FIFO\n"); 
+
+
+    do {
+    fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
+        if (fdFIFO == -1) sleep(1);
+    } while (fdFIFO == -1);
+
+  tlv_request_t request;
+  read(fdFIFO,&request, sizeof(tlv_request_t));
 
   shmfd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
 
   if (shmfd < 0)
   {
-    perror("WRITER failure in shm_open()");
+    perror("Server failure in shm_open()");
     exit(1);
   }
+
   if (ftruncate(shmfd, SHM_SIZE) < 0)
   {
-    perror("WRITER failure in ftruncate()");
+    perror("Server failure in ftruncate()");
     exit(2);
   }
 
   shm = (char *)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
   if (shm == MAP_FAILED)
   {
-    perror("WRITER failure in mmap()");
+    perror("Server failure in mmap()");
     exit(3);
   }
 
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
 
-  mkfifo(SERVER_FIFO_PATH,O_RDONLY);
   if (argc < 2)
   {
     printf("Insufficient number of arguments\n");
     return 1;
   }
-
-
-
-  // int fd1, fd2;
-  // char fifoName[]="/tmp/secure_";
-  // char pid[WIDTH_ID + 1];
 
   pthread_t threads[atoi(argv[1])];
 
@@ -70,27 +77,18 @@ int main(int argc, char *argv[])
     pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
   }
 
-  for(int i = 1; i <= atoi(argv[1]); i++)
-    pthread_join(threads[i-1], NULL);
-
   create_admin_account(argv[2]);
-  
+
   printf("id: %d\n", accounts[0].account_id);
   printf("balance: %d\n", accounts[0].balance);
   printf("salt: %s\n", accounts[0].salt);
   printf("hash: %s\n", accounts[0].hash);
-      
-  // read(fd1, pid, sizeof(pid));
-  // close(fd1);
-  // strcat(fifoName, pid);
-  // printf("fifoName: %s\n", fifoName);
-  
-  // mkfifo(fifoName,0660);
-  // fd2= open(fifoName, O_WRONLY);
 
-  // close(fd2);
-  // unlink(fifoName);
+  for(int i = 1; i <= atoi(argv[1]); i++)
+    pthread_join(threads[i-1], NULL);     
 
+  close(fdFIFO);
+  unlink(SERVER_FIFO_PATH);
   return 0; 
 }
 
@@ -114,7 +112,7 @@ bool id_in_use(uint32_t id){
 
 int authenticate(uint32_t accountID, const char password[])
 {
-  char* pass_salt = NULL;
+  char pass_salt[MAX_PASSWORD_LEN+64];
   if(!id_in_use(accountID))
     return RC_ID_NOT_FOUND;
   strcpy(pass_salt, password);
@@ -128,8 +126,10 @@ int authenticate(uint32_t accountID, const char password[])
 int processRequest(tlv_request_t* request)
 {
   char fifoName[USER_FIFO_PATH_LEN];
+  char *pid;
+  sprintf(pid, "%d", request->value.header.pid);
   strcpy(fifoName, USER_FIFO_PATH_PREFIX);
-  strcat(fifoName, (char*)request->value.header.pid);
+  strcat(fifoName, pid);
   int operation= request->type;
   uint32_t accountID = request->value.header.account_id;
   tlv_reply_t reply;
@@ -218,28 +218,22 @@ int processRequest(tlv_request_t* request)
 }
 void* bankOffice(void * arg)
 {
-  sem_t* sem;
+  //sem_t* sem;
 
   int id = *(int *)arg;
-  tlv_request_t request;
+  //tlv_request_t request;
   bankOfficeOpen(id);
-  int fd;
-  sem= sem_open(SEM_NAME,0,0600,0);
-   if(sem == SEM_FAILED)
-  {
-    perror("Server failed in sem_open()");
-    exit(RC_OTHER);
-  } 
-  sem_wait(sem);
-  do{
-    fd=open(SERVER_FIFO_PATH, O_RDONLY);
-    if(fd==-1) sleep(1);
-  } while(fd == -1);
-  
-  read(fd, &request, sizeof(tlv_request_t));
-  
-  sem_close(sem);
-  processRequest(&request);
+  //int fd;
+  // sem= sem_open(SEM_NAME,0,0600,0);
+  //  if(sem == SEM_FAILED)
+  // {
+  //   perror("Server failed in sem_open()");
+  //   exit(RC_OTHER);
+  // } 
+  // sem_wait(sem);
+    
+  //sem_close(sem);
+  //processRequest(&request);
   bankOfficeClose(id);
   return NULL;
 }

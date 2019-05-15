@@ -6,6 +6,7 @@
 #include <string.h>
 #include <semaphore.h>
 #include <stdlib.h>
+#include <errno.h> 
 #include "sope.h"
 
 #define READ 0
@@ -13,34 +14,33 @@
 
 void getAccountArgs(char* args, char* acc_args[])
 {
-   char *id = NULL;
+    char id[WIDTH_ID] = "";
+    char balance[WIDTH_BALANCE+1] = "";
+    char password[MAX_PASSWORD_LEN] = "";
 
-    char * balance = NULL;
-    char * password = NULL;
     for(int i=0; i < strlen(args); i++){
-        printf("%d", i);
         if(args[i] == ' ')
             break;
         id[i]=args[i];
     }
 
-    for(int i=strlen(id); i < strlen(args); i++){
+    for(int i=(strlen(id)+1); i < strlen(args); i++){
 
          if(args[i] == ' ')
              break;
-         balance[i-strlen(id)]=args[i];
+         balance[i-(strlen(id)+1)]=args[i];
     }
     
-    for(int i=(strlen(id)+strlen(balance)); i < strlen(args); i++){
+    for(int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
 
         if(args[i] == ' ')
             break;
-        password[strlen(id)+strlen(balance)]=args[i];
+        password[i-(strlen(id)+strlen(balance)+2)]=args[i];
     }
 
     acc_args[0] = id;
-    acc_args[1]= password;
-    acc_args[2] = balance;
+    acc_args[1] = balance;
+    acc_args[2]= password;
 }
 
 void getTransferArgs(char* args, char* acc_args[])
@@ -120,8 +120,12 @@ int main(int argc, char *argv[])
     printf("operation: %d\n", operation);
     printf("args: %s\n", args);
 
-    mkfifo(SERVER_FIFO_PATH,0660);
-    fd1=open(SERVER_FIFO_PATH, O_WRONLY);
+    do {
+    fd1=open(SERVER_FIFO_PATH, O_WRONLY | O_NONBLOCK);
+
+        if (fd1 == -1) sleep(1);
+    } while (fd1 == -1);
+
 
     req_header_t req_header;
 
@@ -129,7 +133,7 @@ int main(int argc, char *argv[])
     req_header.account_id = id;
     req_header.op_delay_ms = delay;
     strcpy(req_header.password, password);
-    
+
     req_value_t req_value;
 
     req_value.header = req_header;
@@ -138,11 +142,16 @@ int main(int argc, char *argv[])
 
         req_create_account_t account;
         
-        char** acc_args = NULL;
+        char* acc_args[3];
+        acc_args[0]= malloc(sizeof(WIDTH_ID+1));
+        acc_args[1]=malloc(sizeof(WIDTH_BALANCE+1));
+        acc_args[2]=malloc(sizeof(21));
         getAccountArgs(args, acc_args);
-        account.account_id = *(int*)acc_args[0];
-        account.balance = *(int*)acc_args[1];
-        strcpy(account.password,acc_args[2]);
+     
+        account.account_id = atoi(acc_args[0]);
+        account.balance = atoi(acc_args[1]);
+        strcpy(account.password, acc_args[2]); //////////////////// -> password and balance with problems
+
         req_value.create = account;
     }
     else if (operation == 2){
@@ -167,8 +176,7 @@ int main(int argc, char *argv[])
 
     write(fd1, &request, sizeof(request));
     close(fd1);
-
-
+    printf("sent request\n");
     // receive answer     
     do {
         fd2=open(fifoName, O_RDONLY);
@@ -178,10 +186,9 @@ int main(int argc, char *argv[])
     tlv_reply_t reply;
     read(fd2, &reply, sizeof(tlv_reply_t));
 
-    int logfile= open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logfile= open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logReply(logfile, pidN, &reply);
     close(logfile);
-    
     close(fd2);
     return 0;
 }
