@@ -1,11 +1,36 @@
 #include "server.h"
 
+
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
 int slog;
 
 int main(int argc, char *argv[])
 {
+
+  int shmfd;
+  char *shm, *s;
+
+  shmfd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
+
+  if (shmfd < 0)
+  {
+    perror("WRITER failure in shm_open()");
+    exit(1);
+  }
+  if (ftruncate(shmfd, SHM_SIZE) < 0)
+  {
+    perror("WRITER failure in ftruncate()");
+    exit(2);
+  }
+
+  shm = (char *)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+  if (shm == MAP_FAILED)
+  {
+    perror("WRITER failure in mmap()");
+    exit(3);
+  }
+
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
 
@@ -15,6 +40,8 @@ int main(int argc, char *argv[])
     printf("Insufficient number of arguments\n");
     return 1;
   }
+
+
 
   // int fd1, fd2;
   // char fifoName[]="/tmp/secure_";
@@ -27,7 +54,14 @@ int main(int argc, char *argv[])
   close(logfile);
 
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
-    return 1; 
+    return 1;
+
+  s = shm;
+  for (int i = 0; i < SHM_SIZE - 1; i++){
+
+    *s++ = 1;
+  }
+  *s = (char)0;
 
   int id[atoi(argv[1])];
   for(int i = 1; i <= atoi(argv[1]); i++)
@@ -98,25 +132,18 @@ int processRequest(int operation, const req_value_t* request)
   {
     if(accountID != 0)
       return RC_OP_NALLOW;
-    if(authenticate(accountID, request->header.password)==RC_OK)
-    {
       create_user_account(request->create.account_id, request->create.password, request->create.balance);
       int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
       logAccountCreation(logfile, pthread_self(), &accounts[accountID]);
       close(logfile);
-    }
-    else
-      return RC_LOGIN_FAIL;
   }
   if(operation == OP_BALANCE)
   {
     if(accountID == 0)
       return RC_OP_NALLOW;
-    if(authenticate(accountID, request->header.password)==RC_OK)
-    {
-        int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
-        close(logfile);
-    }
+      int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
+      close(logfile);
+    
   }
   if(operation == OP_TRANSFER)
   {

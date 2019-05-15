@@ -9,6 +9,7 @@
 #include <openssl/sha.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/mman.h>
 
 #include "log.c"
 

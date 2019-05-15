@@ -34,3 +34,8 @@
 #define FIFO_TIMEOUT_SECS 30
 
 #define SEM_NAME  "/sem1"
+
+#define SHM_NAME "/shm1"
+
+#define SHM_SIZE sizeof(tlv_request_t) * 100
+
