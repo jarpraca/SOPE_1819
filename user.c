@@ -4,12 +4,15 @@
 #include <sys/stat.h>
 #include <sys/file.h> 
 #include <string.h>
+#include <semaphore.h>
+#include "constants.h"
 
 #define READ 0
 #define WRITE 1
 
 int main(void)
 {
+    sem_t* sem;  
     int fd, fd1;
     pid_t pidN = getpid();
     char fifoName[]="/tmp/secure_";
@@ -24,7 +27,8 @@ int main(void)
     char num1[10];
     char num2[10];
 
-    do{
+    sem=sem_open(SEM_NAME, O_CREAT, 0770);
+
         fd=open("/tmp/secure_srv", O_WRONLY);
         printf("x y ? ");
         scanf("%s %s", num1, num2);
@@ -32,6 +36,9 @@ int main(void)
         write(fd, num1, sizeof(num1));
         write(fd, num2, sizeof(num2));
         close(fd);
+
+        sem_post(sem);
+
 
         int sum;
         int diff;
@@ -54,7 +61,8 @@ int main(void)
         printf("Mult: %d\n", mult);
         printf("Di: %d\n", di);
         close(fd1);
-    } while(num1 != "0" || num2 != "0");
     
+    sem_close(sem);
+    sem_unlink(sem);
     return 0;
 }

@@ -14,6 +14,7 @@ int main(int argc, char *argv[])
     // int fd1, fd2;
     // char fifoName[]="/tmp/secure_";
     // char pid[WIDTH_ID + 1];
+
     pthread_t threads[atoi(argv[1])];
 
     int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -92,7 +93,7 @@ int processRequest(int operation, const req_value_t* request)
   {
     if(accountID != 0)
       return RC_OP_NALLOW;
-    if(authenticate(accountID, request->header.password)==0)
+    if(authenticate(accountID, request->header.password)==RC_OK)
     {
       create_user_account(request->create.account_id, request->create.password, request->create.balance);
       int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
@@ -106,7 +107,7 @@ int processRequest(int operation, const req_value_t* request)
   {
     if(accountID == 0)
       return RC_OP_NALLOW;
-    if(authenticate(accountID, request->header.password)==0)
+    if(authenticate(accountID, request->header.password)==RC_OK)
     {
         int logfile = open(SERVER_LOGFILE, O_WRONLY, 0644);
         close(logfile);
@@ -126,12 +127,21 @@ int processRequest(int operation, const req_value_t* request)
 }
 void* bankOffice(void * arg)
 {
+  sem_t* sem;
+
   int id = *(int *)arg;
   char *operation = NULL;
   uint32_t* length = 0;
   req_value_t* value = NULL;
   bankOfficeOpen(id);
   int fd;
+  sem= sem_open(SEM_NAME,0,0600,0);
+   if(sem == SEM_FAILED)
+  {
+    perror("Server failed in sem_open()");
+    exit(RC_OTHER);
+  } 
+  sem_wait(sem);
   do{
     fd=open(SERVER_FIFO_PATH, O_RDONLY);
     if(fd==-1) sleep(1);
@@ -140,6 +150,7 @@ void* bankOffice(void * arg)
   read(fd, operation, sizeof(op_type_t));
   read(fd, length, sizeof(uint32_t));
   read(fd, value, sizeof(*length));
+  sem_close(sem);
   processRequest(atoi(operation), value);
   bankOfficeClose(id);
   return NULL;

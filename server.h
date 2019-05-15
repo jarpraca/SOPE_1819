@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <openssl/sha.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #include "log.c"
 
