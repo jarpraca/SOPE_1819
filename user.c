@@ -46,21 +46,12 @@ int main(int argc, char *argv[])
     char *args = argv[5];
 
     sprintf(pid, "%d", pidN);
-    printf("pid: %s \n", pid);
     strcpy(fifoName, USER_FIFO_PATH_PREFIX);
     strcat(fifoName, pid);
-    printf("fifoname: %s \n", fifoName);
-    /*
-    printf("\nid: %d\n", id);
-    printf("password: %s\n", password);
-    printf("delay: %d\n", delay);
-    printf("operation: %d\n", operation);*/
-    printf("args: %s\n", args);
 
     do
     {
         fd1 = open(SERVER_FIFO_PATH, O_WRONLY | O_NONBLOCK);
-
         if (fd1 == -1)
             sleep(1);
     } while (fd1 == -1);
@@ -113,7 +104,6 @@ int main(int argc, char *argv[])
 
     tlv_reply_t reply;
     read(fd2, &reply, sizeof(tlv_reply_t));
-    printf(" reply, %d\n", reply.value.header.account_id);
 
     if(operation == OP_BALANCE)
     {
@@ -129,9 +119,9 @@ int main(int argc, char *argv[])
 
 void getAccountArgs(char *args, req_create_account_t *account)
 {
-    char id[WIDTH_ID] = "";
-    char balance[WIDTH_BALANCE+1] = "";
-    char password[MAX_PASSWORD_LEN] = "";
+    char id[WIDTH_ID + 1];
+    char balance[WIDTH_BALANCE + 1];
+    char password[MAX_PASSWORD_LEN + 1];
 
     for(int i=0; i < strlen(args); i++){
         if(args[i] == ' ')
@@ -160,8 +150,8 @@ void getAccountArgs(char *args, req_create_account_t *account)
 
 void getTransferArgs(char* args, req_transfer_t *transfer)
 {
-    char* id = NULL;
-    char* amount = NULL;
+    char id[WIDTH_ID + 1];
+    char amount[WIDTH_BALANCE + 1];
     for(int i=0; i < strlen(args); i++){
 
         if(args[i] == ' ')
@@ -179,4 +169,5 @@ void getTransferArgs(char* args, req_transfer_t *transfer)
     transfer->account_id = atoi(id);
     transfer->amount = atoi(amount);
 }
+
 
