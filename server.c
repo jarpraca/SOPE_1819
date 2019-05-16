@@ -1,5 +1,6 @@
 #include "server.h"
 
+
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 
 int slog;
@@ -16,11 +17,13 @@ int main(int argc, char *argv[])
   int shmfd, fdFIFO;
   char *shm;
 
-  if(mkfifo(SERVER_FIFO_PATH,0660)<0)
+
+  if(mkfifo(SERVER_FIFO_PATH,0660)<0){
     if (errno==EEXIST) 
       printf("FIFO '/tmp/secure_srv' already exists\n");
-    else 
-      printf("Can't create FIFO\n"); 
+    else
+      printf("Can't create FIFO\n");
+  }
 
   do {
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
@@ -135,7 +138,7 @@ int authenticate(uint32_t accountID, const char password[])
 int processRequest(tlv_request_t* request)
 {
   char fifoName[USER_FIFO_PATH_LEN];
-  char *pid;
+  char *pid = NULL;
   sprintf(pid, "%d", request->value.header.pid);
   strcpy(fifoName, USER_FIFO_PATH_PREFIX);
   strcat(fifoName, pid);
@@ -143,24 +146,32 @@ int processRequest(tlv_request_t* request)
   uint32_t accountID = request->value.header.account_id;
   tlv_reply_t reply;
   reply.length=sizeof(rep_value_t);
+
+  sem_t *sem_accounts;
+  sem_accounts = sem_open(SEM_ACCOUNTS, 0, 0600, 0);
+
   switch(operation){
     case OP_CREATE_ACCOUNT:
     {
-        reply.type=OP_CREATE_ACCOUNT;
-        rep_value_t value;
-        rep_header_t header;
-        header.account_id= accountID;
-        if(accountID != 0)
-          header.ret_code = RC_OP_NALLOW;
-        else
-          header.ret_code = RC_OK;
-        value.header=header;
-        reply.value=value;
-        create_user_account(request->value.create.account_id, request->value.create.password, request->value.create.balance);
-        break;
+      sem_wait(sem_accounts);
+      reply.type = OP_CREATE_ACCOUNT;
+      rep_value_t value;
+      rep_header_t header;
+      header.account_id = accountID;
+      if (accountID != 0)
+        header.ret_code = RC_OP_NALLOW;
+      else
+        header.ret_code = RC_OK;
+      value.header = header;
+      reply.value = value;
+      create_user_account(request->value.create.account_id, request->value.create.password, request->value.create.balance);
+      break;
     }
     case OP_BALANCE:
     {
+
+      sem_wait(sem_accounts);
+
       reply.type=OP_BALANCE;
       rep_value_t value;
       rep_header_t header;
@@ -175,9 +186,12 @@ int processRequest(tlv_request_t* request)
       value.balance=balance;
       reply.value=value;
       break;
+
     }
     case OP_TRANSFER:
     {
+
+      sem_wait(sem_accounts);
       reply.type=OP_TRANSFER;
       rep_value_t value;
       rep_header_t header;
@@ -192,9 +206,12 @@ int processRequest(tlv_request_t* request)
       reply.value.transfer= transfer;
       reply.value=value;
       break;
+
     }
     case OP_SHUTDOWN:
     {
+      sem_wait(sem_accounts);
+
       reply.type=OP_SHUTDOWN;
       rep_value_t value;
       rep_header_t header;
@@ -212,6 +229,8 @@ int processRequest(tlv_request_t* request)
     }
     default:
       break;
+      
+    sem_close(sem_accounts);
   }
     
   int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -229,7 +248,8 @@ int processRequest(tlv_request_t* request)
 void* bankOffice(void * arg)
 {
   int shmfd;
-  char *shm, ch;
+  //char *shm, ch;
+  char *shm;
   sem_t *sem;
 
   //open the shared memory region
@@ -318,7 +338,17 @@ void bankOfficeClose(int id)
 
 int create_account(uint32_t id, const char *password, uint32_t balance)
 {
+  sem_t *sem_accounts;
   struct bank_account new;
+
+  sem_accounts = sem_open(SEM_ACCOUNTS, O_CREAT | O_RDWR, 0600, 0);
+  if (sem_accounts == SEM_FAILED)
+  {
+    perror("WRITER failure in sem_open()");
+    exit(4);
+  }
+
+  sem_post(sem_accounts);
 
   new.account_id = id;
   new.balance = balance;
@@ -336,6 +366,9 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
   free(hash);
 
   accounts[id] = new;
+
+  sem_close(sem_accounts);
+  sem_unlink(SEM_ACCOUNTS);
 
   return 0;
 }

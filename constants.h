@@ -35,6 +35,8 @@
 
 #define SEM_NAME  "/sem1"
 
+#define SEM_ACCOUNTS "/sem_accounts"
+
 #define SHM_NAME "/shm1"
 
 #define SHM_SIZE sizeof(tlv_request_t) * 100
