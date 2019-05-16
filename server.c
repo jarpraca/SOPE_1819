@@ -1,10 +1,12 @@
 #include "server.h"
 
+queue_t *queue;
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
 int slog;
 
 int main(int argc, char *argv[])
 {
+  //queue = createQueue(MAX_QUEUE_SIZE);
 
   if (argc < 2)
   {
@@ -27,7 +29,7 @@ int main(int argc, char *argv[])
 
   tlv_request_t request;
   read(fdFIFO,&request, sizeof(tlv_request_t));
-
+  //push(queue, request);
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
   if(sem == SEM_FAILED)
@@ -44,6 +46,8 @@ int main(int argc, char *argv[])
 
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
     return 1;
+
+  printf("id: %d\n", accounts[0].account_id);
 
   int id[atoi(argv[1])];
   for(int i = 1; i <= atoi(argv[1]); i++)
@@ -100,7 +104,10 @@ int authenticate(uint32_t accountID, const char password[])
 
 int processRequest(tlv_request_t* request)
 {
+  printf(" %ld\n", pthread_self());
   char fifoName[USER_FIFO_PATH_LEN];
+      printf(" %ld\n", pthread_self());
+
   char *pid = NULL;
   sprintf(pid, "%d", request->value.header.pid);
   strcpy(fifoName, USER_FIFO_PATH_PREFIX);
@@ -108,6 +115,7 @@ int processRequest(tlv_request_t* request)
   int operation= request->type;
   uint32_t accountID = request->value.header.account_id;
   tlv_reply_t reply;
+
   reply.length=sizeof(rep_value_t);
 
   sem_t *sem_accounts;
@@ -210,9 +218,13 @@ int processRequest(tlv_request_t* request)
 
 void* bankOffice(void * arg)
 {
-  sem_t *sem;
+    printf("beggining thread\n");
 
-  //open existing semaphore
+  int id = *(int *)arg;
+  bankOfficeOpen(id);
+    printf("middle thread\n");
+
+  sem_t *sem;
   sem = sem_open(SEM_NAME,0,0600);
   if(sem == SEM_FAILED)
   {
@@ -220,29 +232,25 @@ void* bankOffice(void * arg)
     exit(3);
   } 
 
-  //wait for writer to stop writing
   sem_wait(sem);
+  // if(!isEmpty(queue))
+  // {
+  //   printf(" %d\n", id);
 
-  //close semaphore and unmap shared memory region
-  sem_close(sem);
-  
-  int id = *(int *)arg;
-  //tlv_request_t request;
-  bankOfficeOpen(id);
+  //   tlv_request_t request = pop(queue);
+  //       printf(" %ld\n", pthread_self());
+
+  //   processRequest(&request);
+
+  // }
+
 
   sem_post(sem);
-  //int fd;
-  // sem= sem_open(SEM_NAME,0,0600,0);
-  //  if(sem == SEM_FAILED)
-  // {
-  //   perror("Server failed in sem_open()");
-  //   exit(RC_OTHER);
-  // } 
-  // sem_wait(sem);
-    
-  //sem_close(sem);
-  //processRequest(&request);
+  sem_close(sem);
+
   bankOfficeClose(id);
+      printf("ending thread\n");
+
   return NULL;
 }
 
