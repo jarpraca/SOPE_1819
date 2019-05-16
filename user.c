@@ -50,10 +50,11 @@ int main(int argc, char *argv[])
     strcpy(fifoName, USER_FIFO_PATH_PREFIX);
     strcat(fifoName, pid);
     printf("fifoname: %s \n", fifoName);
+    /*
     printf("\nid: %d\n", id);
     printf("password: %s\n", password);
     printf("delay: %d\n", delay);
-    printf("operation: %d\n", operation);
+    printf("operation: %d\n", operation);*/
     printf("args: %s\n", args);
 
     do
@@ -77,29 +78,14 @@ int main(int argc, char *argv[])
 
     if (operation == OP_CREATE_ACCOUNT)
     {
-
         req_create_account_t account;
-
-        char *acc_args[3];
-        acc_args[0] = malloc(sizeof(WIDTH_ID + 1));
-        acc_args[1] = malloc(sizeof(WIDTH_BALANCE + 1));
-        acc_args[2] = malloc(sizeof(21));
-        getAccountArgs(args, acc_args);
-
-        account.account_id = atoi(acc_args[0]);
-        account.balance = atoi(acc_args[1]);
-        strcpy(account.password, acc_args[2]); //////////////////// -> password and balance with problems
-
+        getAccountArgs(args, &account);
         req_value.create = account;
     }
     else if (operation == OP_TRANSFER)
     {
-
         req_transfer_t transfer;
-        char **transf_args = NULL;
-        getTransferArgs(argv[5], transf_args);
-        transfer.account_id = *(int *)transf_args[0];
-        transfer.amount = *(int *)transf_args[1];
+        getTransferArgs(argv[5], &transfer);
         req_value.transfer = transfer;
     }
 
@@ -141,7 +127,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void getAccountArgs(char* args, char* acc_args[])
+void getAccountArgs(char *args, req_create_account_t *account)
 {
     char id[WIDTH_ID] = "";
     char balance[WIDTH_BALANCE+1] = "";
@@ -167,15 +153,15 @@ void getAccountArgs(char* args, char* acc_args[])
         password[i-(strlen(id)+strlen(balance)+2)]=args[i];
     }
 
-    acc_args[0] = id;
-    acc_args[1] = balance;
-    acc_args[2]= password;
+    account->account_id = atoi(id);
+    account->balance = atoi(balance);
+    strcpy(account->password, password);
 }
 
-void getTransferArgs(char* args, char* acc_args[])
+void getTransferArgs(char* args, req_transfer_t *transfer)
 {
- char* id = NULL;
- char* amount = NULL;
+    char* id = NULL;
+    char* amount = NULL;
     for(int i=0; i < strlen(args); i++){
 
         if(args[i] == ' ')
@@ -190,7 +176,7 @@ void getTransferArgs(char* args, char* acc_args[])
         amount[i-strlen(id)]=args[i];
     }
 
-    acc_args[0] = id;
-    acc_args[1] = amount;
+    transfer->account_id = atoi(id);
+    transfer->amount = atoi(amount);
 }
 

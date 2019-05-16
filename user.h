@@ -12,6 +12,6 @@
 #define READ 0
 #define WRITE 1
 
-void getAccountArgs(char *args, char *acc_args[]);
+void getAccountArgs(char *args, req_create_account_t *account);
 
-void getTransferArgs(char *args, char *acc_args[]);
+void getTransferArgs(char *args, req_transfer_t *transfer);
