@@ -6,8 +6,15 @@ int slog;
 
 int main(int argc, char *argv[])
 {
+
+  if (argc < 2)
+  {
+    printf("Insufficient number of arguments\n");
+    return 1;
+  }
+
   int shmfd, fdFIFO;
-  char *shm, *s;
+  char *shm;
 
   if(mkfifo(SERVER_FIFO_PATH,0660)<0)
     if (errno==EEXIST) 
@@ -15,17 +22,15 @@ int main(int argc, char *argv[])
     else 
       printf("Can't create FIFO\n"); 
 
-
-    do {
+  do {
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
         if (fdFIFO == -1) sleep(1);
-    } while (fdFIFO == -1);
+  } while (fdFIFO == -1);
 
   tlv_request_t request;
   read(fdFIFO,&request, sizeof(tlv_request_t));
 
   shmfd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
-
   if (shmfd < 0)
   {
     perror("Server failure in shm_open()");
@@ -48,11 +53,6 @@ int main(int argc, char *argv[])
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
 
-  if (argc < 2)
-  {
-    printf("Insufficient number of arguments\n");
-    return 1;
-  }
 
   pthread_t threads[atoi(argv[1])];
 
@@ -63,13 +63,12 @@ int main(int argc, char *argv[])
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
     return 1;
 
-  s = shm;
-  for (int i = 0; i < SHM_SIZE - 1; i++){
-
-    *s++ = 1;
-  }
-  *s = (char)0;
-
+  // s = shm;
+  // for (int i = 0; i < request.length; i++){
+  //   *s++ = 1;
+  // }
+  memcpy(shm, &request, sizeof(request));
+  //*s = (char)0;
   int id[atoi(argv[1])];
   for(int i = 1; i <= atoi(argv[1]); i++)
   {
@@ -89,6 +88,16 @@ int main(int argc, char *argv[])
 
   close(fdFIFO);
   unlink(SERVER_FIFO_PATH);
+  sem_close(sem);
+  sem_unlink(SEM_NAME);
+  
+  if (munmap(shm,SHM_SIZE) < 0)
+  {
+    perror("WRITER failure in munmap()");
+    exit(5);
+  }
+
+  shm_unlink(SHM_NAME);
   return 0; 
 }
 
@@ -216,9 +225,62 @@ int processRequest(tlv_request_t* request)
   unlink(fifoName);
   return RC_OK;
 }
+
 void* bankOffice(void * arg)
 {
-  //sem_t* sem;
+  int shmfd;
+  char *shm, ch;
+  sem_t *sem;
+
+  //open the shared memory region
+  shmfd = shm_open(SHM_NAME,O_RDWR,0600);
+  if(shmfd<0)
+  {
+    perror("READER failure in shm_open()");
+    exit(1);
+  }
+
+  //attach this region to virtual memory
+  shm = (char *) mmap(0,SHM_SIZE,PROT_READ|PROT_WRITE,MAP_SHARED,shmfd,0);
+  if(shm == MAP_FAILED)
+  {
+    perror("READER failure in mmap()");
+    exit(2);
+  }
+
+  //open existing semaphore
+  sem = sem_open(SEM_NAME,0,0600);
+  if(sem == SEM_FAILED)
+  {
+    perror("READER failure in sem_open()");
+    exit(3);
+  } 
+
+  //wait for writer to stop writing
+  sem_wait(sem);
+
+  //read the message
+  //  s = shm;
+  //  for (s=shm; *s!=0; s++)
+  //  {
+  //  ch = *s;
+  //  putchar(ch);
+  //  sum = sum + (ch - '0');
+  //  }
+  //  printf("\nsum = %d\n", sum);
+  
+  //once done signal exiting of reader
+  //could be replaced by semaphore use (TO DO by students)
+  //  *shm = '*';
+
+  //close semaphore and unmap shared memory region
+  sem_close(sem);
+  
+  if (munmap(shm,SHM_SIZE) < 0)
+  {
+    perror("READER failure in munmap()");
+    exit(4);
+  } 
 
   int id = *(int *)arg;
   //tlv_request_t request;
@@ -279,7 +341,7 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
 }
 
 int create_admin_account(const char *password){
-  if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN + 1)
+  if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN)
     return 1;
 
   int ret = create_account(0, password, 0);
