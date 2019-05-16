@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include "log.c"
+#include "queue.c"
 
 #define READ 0
 #define WRITE 1
