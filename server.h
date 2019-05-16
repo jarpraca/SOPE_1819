@@ -17,7 +17,7 @@
 #define READ 0
 #define WRITE 1
 
-char *generate_salt();
+void generate_salt(char* salt);
 
 bool id_in_use(uint32_t id);
 

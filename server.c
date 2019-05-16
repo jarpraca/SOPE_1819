@@ -1,8 +1,6 @@
 #include "server.h"
 
-
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
-
 int slog;
 
 int main(int argc, char *argv[])
@@ -14,10 +12,7 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  int shmfd, fdFIFO;
-  char *shm;
-
-
+  int fdFIFO;
   if(mkfifo(SERVER_FIFO_PATH,0660)<0){
     if (errno==EEXIST) 
       printf("FIFO '/tmp/secure_srv' already exists\n");
@@ -33,29 +28,13 @@ int main(int argc, char *argv[])
   tlv_request_t request;
   read(fdFIFO,&request, sizeof(tlv_request_t));
 
-  shmfd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
-  if (shmfd < 0)
-  {
-    perror("Server failure in shm_open()");
-    exit(1);
-  }
-
-  if (ftruncate(shmfd, SHM_SIZE) < 0)
-  {
-    perror("Server failure in ftruncate()");
-    exit(2);
-  }
-
-  shm = (char *)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
-  if (shm == MAP_FAILED)
-  {
-    perror("Server failure in mmap()");
-    exit(3);
-  }
-
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
-
+  if(sem == SEM_FAILED)
+  {
+    perror("READER failure in sem_open()");
+    exit(3);
+  } 
 
   pthread_t threads[atoi(argv[1])];
 
@@ -66,12 +45,6 @@ int main(int argc, char *argv[])
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
     return 1;
 
-  // s = shm;
-  // for (int i = 0; i < request.length; i++){
-  //   *s++ = 1;
-  // }
-  memcpy(shm, &request, sizeof(request));
-  //*s = (char)0;
   int id[atoi(argv[1])];
   for(int i = 1; i <= atoi(argv[1]); i++)
   {
@@ -92,30 +65,20 @@ int main(int argc, char *argv[])
   close(fdFIFO);
   unlink(SERVER_FIFO_PATH);
   sem_close(sem);
+  sem_unlink(SEM_ACCOUNTS);
   sem_unlink(SEM_NAME);
   
-  if (munmap(shm,SHM_SIZE) < 0)
-  {
-    perror("WRITER failure in munmap()");
-    exit(5);
-  }
-
-  shm_unlink(SHM_NAME);
   return 0; 
 }
 
-char * generate_salt(){
+void generate_salt(char* salt){
   char characters[] = "0123456789abcdef";
-  char *salt;
-  salt = malloc(SALT_LEN + 1);
 
   srand(time(0));
 
   for(int i = 0; i < 64; i++){
     salt[i] = characters[rand() % 16];
   }
-
-  return salt;
 }
 
 bool id_in_use(uint32_t id){
@@ -148,7 +111,7 @@ int processRequest(tlv_request_t* request)
   reply.length=sizeof(rep_value_t);
 
   sem_t *sem_accounts;
-  sem_accounts = sem_open(SEM_ACCOUNTS, 0, 0600, 0);
+  sem_accounts = sem_open(SEM_ACCOUNTS, 0, 0600);
 
   switch(operation){
     case OP_CREATE_ACCOUNT:
@@ -247,26 +210,7 @@ int processRequest(tlv_request_t* request)
 
 void* bankOffice(void * arg)
 {
-  int shmfd;
-  //char *shm, ch;
-  char *shm;
   sem_t *sem;
-
-  //open the shared memory region
-  shmfd = shm_open(SHM_NAME,O_RDWR,0600);
-  if(shmfd<0)
-  {
-    perror("READER failure in shm_open()");
-    exit(1);
-  }
-
-  //attach this region to virtual memory
-  shm = (char *) mmap(0,SHM_SIZE,PROT_READ|PROT_WRITE,MAP_SHARED,shmfd,0);
-  if(shm == MAP_FAILED)
-  {
-    perror("READER failure in mmap()");
-    exit(2);
-  }
 
   //open existing semaphore
   sem = sem_open(SEM_NAME,0,0600);
@@ -279,32 +223,14 @@ void* bankOffice(void * arg)
   //wait for writer to stop writing
   sem_wait(sem);
 
-  //read the message
-  //  s = shm;
-  //  for (s=shm; *s!=0; s++)
-  //  {
-  //  ch = *s;
-  //  putchar(ch);
-  //  sum = sum + (ch - '0');
-  //  }
-  //  printf("\nsum = %d\n", sum);
-  
-  //once done signal exiting of reader
-  //could be replaced by semaphore use (TO DO by students)
-  //  *shm = '*';
-
   //close semaphore and unmap shared memory region
   sem_close(sem);
   
-  if (munmap(shm,SHM_SIZE) < 0)
-  {
-    perror("READER failure in munmap()");
-    exit(4);
-  } 
-
   int id = *(int *)arg;
   //tlv_request_t request;
   bankOfficeOpen(id);
+
+  sem_post(sem);
   //int fd;
   // sem= sem_open(SEM_NAME,0,0600,0);
   //  if(sem == SEM_FAILED)
@@ -338,22 +264,12 @@ void bankOfficeClose(int id)
 
 int create_account(uint32_t id, const char *password, uint32_t balance)
 {
-  sem_t *sem_accounts;
-  struct bank_account new;
-
-  sem_accounts = sem_open(SEM_ACCOUNTS, O_CREAT | O_RDWR, 0600, 0);
-  if (sem_accounts == SEM_FAILED)
-  {
-    perror("WRITER failure in sem_open()");
-    exit(4);
-  }
-
-  sem_post(sem_accounts);
+  bank_account_t new;
 
   new.account_id = id;
   new.balance = balance;
   char * salt;
-  salt = generate_salt();
+  generate_salt(salt);
   strcpy(new.salt, salt);
   free(salt);
 
@@ -366,14 +282,21 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
   free(hash);
 
   accounts[id] = new;
-
-  sem_close(sem_accounts);
-  sem_unlink(SEM_ACCOUNTS);
-
   return 0;
 }
 
 int create_admin_account(const char *password){
+  sem_t *sem_accounts;
+
+  sem_accounts = sem_open(SEM_ACCOUNTS, O_CREAT | O_RDWR, 0600, 0);
+  if (sem_accounts == SEM_FAILED)
+  {
+    perror("WRITER failure in sem_open()");
+    exit(4);
+  }
+
+  sem_post(sem_accounts);
+
   if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN)
     return 1;
 
@@ -383,6 +306,8 @@ int create_admin_account(const char *password){
     return logAccountCreation(slog, 0, &accounts[0]);
   else
     return ret;
+
+  sem_close(sem_accounts);
 }
 
 int create_user_account(uint32_t id, const char *password, uint32_t balance){
