@@ -116,6 +116,7 @@ int main(int argc, char *argv[])
     write(fd1, &request, sizeof(request));
     close(fd1);
     printf("sent request\n");
+
     // receive answer
     do
     {
@@ -126,6 +127,7 @@ int main(int argc, char *argv[])
 
     tlv_reply_t reply;
     read(fd2, &reply, sizeof(tlv_reply_t));
+    printf(" reply, %d\n", reply.value.header.account_id);
 
     if(operation == OP_BALANCE)
     {

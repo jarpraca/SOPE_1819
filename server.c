@@ -6,7 +6,7 @@ int slog;
 
 int main(int argc, char *argv[])
 {
-  //queue = createQueue(MAX_QUEUE_SIZE);
+  queue = createQueue(MAX_QUEUE_SIZE);
 
   if (argc < 2)
   {
@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
 
   tlv_request_t request;
   read(fdFIFO,&request, sizeof(tlv_request_t));
-  //push(queue, request);
+  push(queue, request);
   sem_t* sem;
   sem= sem_open(SEM_NAME, O_CREAT, 0660);
   if(sem == SEM_FAILED)
@@ -39,10 +39,6 @@ int main(int argc, char *argv[])
   } 
 
   pthread_t threads[atoi(argv[1])];
-
-  int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-  logDelay(logfile, 0,0);
-  close(logfile);
 
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
     return 1;
@@ -104,14 +100,12 @@ int authenticate(uint32_t accountID, const char password[])
 
 int processRequest(tlv_request_t* request)
 {
-  printf(" %ld\n", pthread_self());
   char fifoName[USER_FIFO_PATH_LEN];
-      printf(" %ld\n", pthread_self());
-
-  char *pid = NULL;
+  char pid[10];
   sprintf(pid, "%d", request->value.header.pid);
   strcpy(fifoName, USER_FIFO_PATH_PREFIX);
   strcat(fifoName, pid);
+
   int operation= request->type;
   uint32_t accountID = request->value.header.account_id;
   tlv_reply_t reply;
@@ -123,8 +117,12 @@ int processRequest(tlv_request_t* request)
 
   switch(operation){
     case OP_CREATE_ACCOUNT:
-    {
+    {  
       sem_wait(sem_accounts);
+      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
+      close(logfile);
+      usleep(request->value.header.op_delay_ms/1000);
       reply.type = OP_CREATE_ACCOUNT;
       rep_value_t value;
       rep_header_t header;
@@ -140,9 +138,11 @@ int processRequest(tlv_request_t* request)
     }
     case OP_BALANCE:
     {
-
       sem_wait(sem_accounts);
-
+      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
+      close(logfile);
+      usleep(request->value.header.op_delay_ms/1000);
       reply.type=OP_BALANCE;
       rep_value_t value;
       rep_header_t header;
@@ -163,6 +163,12 @@ int processRequest(tlv_request_t* request)
     {
 
       sem_wait(sem_accounts);
+      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
+      close(logfile);
+      usleep(request->value.header.op_delay_ms/1000);
+      accounts[request->value.transfer.account_id].balance+=request->value.transfer.amount;
+      accounts[request->value.header.account_id].balance-=request->value.transfer.amount;
       reply.type=OP_TRANSFER;
       rep_value_t value;
       rep_header_t header;
@@ -177,12 +183,10 @@ int processRequest(tlv_request_t* request)
       reply.value.transfer= transfer;
       reply.value=value;
       break;
-
     }
     case OP_SHUTDOWN:
     {
       sem_wait(sem_accounts);
-
       reply.type=OP_SHUTDOWN;
       rep_value_t value;
       rep_header_t header;
@@ -199,11 +203,11 @@ int processRequest(tlv_request_t* request)
       break;
     }
     default:
-      break;
-      
-    sem_close(sem_accounts);
+      break;  
   }
-    
+  
+  sem_close(sem_accounts);
+
   int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logReply(logfile, pthread_self(), &reply);
   close(logfile);
@@ -218,11 +222,9 @@ int processRequest(tlv_request_t* request)
 
 void* bankOffice(void * arg)
 {
-    printf("beggining thread\n");
-
   int id = *(int *)arg;
+
   bankOfficeOpen(id);
-    printf("middle thread\n");
 
   sem_t *sem;
   sem = sem_open(SEM_NAME,0,0600);
@@ -233,16 +235,16 @@ void* bankOffice(void * arg)
   } 
 
   sem_wait(sem);
-  // if(!isEmpty(queue))
-  // {
-  //   printf(" %d\n", id);
+  if(!isEmpty(queue))
+  {
+    printf(" %d\n", id);
 
-  //   tlv_request_t request = pop(queue);
-  //       printf(" %ld\n", pthread_self());
+    tlv_request_t request = pop(queue);
+        printf(" %ld\n", pthread_self());
 
-  //   processRequest(&request);
+    processRequest(&request);
 
-  // }
+  }
 
 
   sem_post(sem);
@@ -276,10 +278,9 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
 
   new.account_id = id;
   new.balance = balance;
-  char * salt;
+  char salt[SALT_LEN];
   generate_salt(salt);
   strcpy(new.salt, salt);
-  free(salt);
 
   char pass_salt[SALT_LEN + MAX_PASSWORD_LEN + 1];
   strcpy(pass_salt, password);
@@ -308,6 +309,9 @@ int create_admin_account(const char *password){
   if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN)
     return 1;
 
+  int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logDelay(logfile, 0,0);
+  close(logfile);  
   int ret = create_account(0, password, 0);
 
   if (ret == 0)
