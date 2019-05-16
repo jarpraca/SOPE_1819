@@ -7,7 +7,7 @@
 #include <semaphore.h>
 #include <stdlib.h>
 #include <errno.h>
-#include "sope.h"
+#include "log.c"
 
 #define READ 0
 #define WRITE 1
