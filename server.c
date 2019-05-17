@@ -2,8 +2,16 @@
 
 queue_t *queue;
 bank_account_t accounts[MAX_BANK_ACCOUNTS];
-int slog;
+bool shutdown=false;
 
+// int readline(int fd, tlv_request_t* request)
+// {
+//  int n;
+//  do {
+//  n = read(fd,request,1);
+//  } while (n>0 && request++ != '\0');
+//  return (n>0);
+// } 
 int main(int argc, char *argv[])
 {
   queue = createQueue(MAX_QUEUE_SIZE);
@@ -27,9 +35,8 @@ int main(int argc, char *argv[])
         if (fdFIFO == -1) sleep(1);
   } while (fdFIFO == -1);
 
-  tlv_request_t request;
-  read(fdFIFO,&request, sizeof(tlv_request_t));
-  push(queue, request);
+  
+
   sem_t* sem;
   sem= sem_open(SEM_NAME,O_CREAT,0600,0);
   if(sem == SEM_FAILED)
@@ -43,8 +50,6 @@ int main(int argc, char *argv[])
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
     return 1;
 
-  printf("id: %d\n", accounts[0].account_id);
-
   int id[atoi(argv[1])];
   for(int i = 1; i <= atoi(argv[1]); i++)
   {
@@ -53,11 +58,52 @@ int main(int argc, char *argv[])
   }
 
   create_admin_account(argv[2]);
-
   printf("id: %d\n", accounts[0].account_id);
   printf("balance: %d\n", accounts[0].balance);
   printf("salt: %s\n", accounts[0].salt);
   printf("hash: %s\n", accounts[0].hash);
+tlv_request_t request;
+while(!shutdown)
+{
+    read(fdFIFO,&request, sizeof(tlv_request_t));
+
+    int ret;
+    if((ret=authenticate(request.value.header.account_id, request.value.header.password))==0)
+    {
+        printf("password: %s \n", request.value.header.password);
+        if(!isFull(queue))
+          push(queue, request);
+
+        printf("queue size : %d\n", queue->size);
+    }
+    else
+    {
+      tlv_reply_t reply;
+      reply.type=request.type;
+      reply.length=sizeof(rep_value_t);
+      rep_value_t value;
+      value.header.account_id=request.value.header.account_id;
+      value.header.ret_code=ret;
+      reply.value=value;
+      int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logReply(logfile, pthread_self(), &reply);
+      close(logfile);
+      char fifoName[USER_FIFO_PATH_LEN];
+      char pid[10];
+
+      sprintf(pid, "%d", request.value.header.pid);
+      strcpy(fifoName, USER_FIFO_PATH_PREFIX);
+      strcat(fifoName, pid);
+
+      mkfifo(fifoName, 0660);
+      int fd= open(fifoName,O_WRONLY);
+      write(fd, &reply, sizeof(tlv_reply_t));
+      close(fd);
+      unlink(fifoName);
+    }
+    
+  }
+
 
   for(int i = 1; i <= atoi(argv[1]); i++)
     pthread_join(threads[i-1], NULL);     
@@ -95,15 +141,24 @@ bool id_in_use(uint32_t id){
 
 int authenticate(uint32_t accountID, const char password[])
 {
-  char pass_salt[MAX_PASSWORD_LEN+64];
+  char pass_salt[MAX_PASSWORD_LEN+SALT_LEN+1];
   if(!id_in_use(accountID))
     return RC_ID_NOT_FOUND;
   strcpy(pass_salt, password);
-  strcpy(pass_salt, accounts[accountID].salt);
-  if(getSha256(pass_salt)==accounts[accountID].hash)
+  strcat(pass_salt, accounts[accountID].salt);
+  char* hash;
+  hash=getSha256(pass_salt);
+  printf("hash: %s \n", hash);
+  printf("hash account: %s \n", accounts[accountID].hash);
+
+  if(strcmp(hash,accounts[accountID].hash)==0)
+  {
+    printf("Aqui\n");
+    free(hash);
     return RC_OK;
-  else
-    return RC_LOGIN_FAIL;
+  }
+  free(hash);
+  return RC_LOGIN_FAIL;
 }
 
 int processRequest(tlv_request_t* request)
@@ -140,10 +195,9 @@ int processRequest(tlv_request_t* request)
       if (accountID != 0)
         header.ret_code = RC_OP_NALLOW;
       else
-        header.ret_code = RC_OK;
+        header.ret_code = create_user_account(request->value.create.account_id, request->value.create.password, request->value.create.balance);
       value.header = header;
       reply.value = value;
-      create_user_account(request->value.create.account_id, request->value.create.password, request->value.create.balance);
       break;
     }
     case OP_BALANCE:
@@ -170,12 +224,22 @@ int processRequest(tlv_request_t* request)
     }
     case OP_TRANSFER:
     {
+      int ret;
       int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
       logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
       close(logfile);
       usleep(request->value.header.op_delay_ms/1000);
-      accounts[request->value.transfer.account_id].balance+=request->value.transfer.amount;
-      accounts[request->value.header.account_id].balance-=request->value.transfer.amount;
+      if(accounts[request->value.header.account_id].balance-request->value.transfer.amount>=MIN_BALANCE)
+      {
+        if(accounts[request->value.transfer.account_id].balance+request->value.transfer.amount<=MAX_BALANCE)
+        {
+          accounts[request->value.header.account_id].balance-=request->value.transfer.amount;
+          accounts[request->value.transfer.account_id].balance+=request->value.transfer.amount;
+          ret=RC_OK;
+        }
+        else
+          ret=RC_NO_FUNDS;
+      }
       reply.type=OP_TRANSFER;
       rep_value_t value;
       rep_header_t header;
@@ -183,7 +247,7 @@ int processRequest(tlv_request_t* request)
       if(accountID == 0)
         header.ret_code = RC_OP_NALLOW;
       else
-        header.ret_code = RC_OK;
+        header.ret_code = ret;
       value.header=header;
         rep_transfer_t transfer;
       transfer.balance= request->value.transfer.amount;
@@ -193,6 +257,11 @@ int processRequest(tlv_request_t* request)
     }
     case OP_SHUTDOWN:
     {
+      int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      logDelay(logfile, request->value.header.account_id, request->value.header.op_delay_ms);
+      close(logfile);
+      usleep(request->value.header.op_delay_ms/1000); 
+      shutdown=true;
       reply.type=OP_SHUTDOWN;
       rep_value_t value;
       rep_header_t header;
@@ -202,9 +271,9 @@ int processRequest(tlv_request_t* request)
       else
         header.ret_code = RC_OK;
       value.header=header;
-      rep_shutdown_t shutdown;
-      shutdown.active_offices = 100; /////////////////////////////just a number, have to figure out how to get the info
-      reply.value.shutdown= shutdown;
+      rep_shutdown_t shutdownRep;
+      shutdownRep.active_offices = 100; /////////////////////////////just a number, have to figure out how to get the info
+      reply.value.shutdown= shutdownRep;
       reply.value=value;
       break;
     }
@@ -228,10 +297,9 @@ int processRequest(tlv_request_t* request)
 
 void* bankOffice(void * arg)
 {
-  int id = *(int *)arg;
+  int id = atoi(arg);
 
   bankOfficeOpen(id);
-
   sem_t *sem;
   sem = sem_open(SEM_NAME,0,0600,0);
   if(sem == SEM_FAILED)
@@ -239,21 +307,17 @@ void* bankOffice(void * arg)
     perror("READER failure in sem_open()");
     exit(3);
   } 
+  do{
+    sem_wait(sem);
+    if(!isEmpty(queue))
+    {
+      tlv_request_t request = pop(queue);
+      processRequest(&request);
+    }
+    sem_post(sem);
+  }while(!shutdown);
 
-  sem_wait(sem);
-  if(!isEmpty(queue))
-  {
-    printf(" %d\n", id);
-
-    tlv_request_t request = pop(queue);
-    processRequest(&request);
-
-  }
-
-
-  sem_post(sem);
-  sem_close(sem);
-
+  sem_close(sem);  
   bankOfficeClose(id);
 
   return NULL;
@@ -316,16 +380,18 @@ int create_admin_account(const char *password){
     return 1;
 
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-  logDelay(logfile, 0,0);
+  logSyncDelay(logfile, 0,0,0);
   close(logfile);  
   int ret = create_account(0, password, 0);
 
   sem_close(sem_accounts);
-
-  if (ret == 0)
-    return logAccountCreation(slog, 0, &accounts[0]);
-  else
-    return ret;
+  if (ret == RC_OK)
+  {
+    int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logAccountCreation(logfile, 0, &accounts[0]);
+    close(logfile);
+  }
+  return ret;
 }
 
 int create_user_account(uint32_t id, const char *password, uint32_t balance){

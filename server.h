@@ -35,3 +35,5 @@ int create_admin_account(const char *password);
 int create_user_account(uint32_t id, const char *password, uint32_t balance);
 
 char *getSha256(char *filename);
+
+int authenticate(uint32_t accountID, const char password[]);

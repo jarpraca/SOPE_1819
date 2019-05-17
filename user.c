@@ -91,6 +91,8 @@ int main(int argc, char *argv[])
     int logfile = open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logRequest(logfile, pidN, &request);
     close(logfile);
+    time_t starttime;
+    starttime=time(NULL);
 
     write(fd1, &request, sizeof(request));
     close(fd1);
@@ -99,13 +101,21 @@ int main(int argc, char *argv[])
     // receive answer
     do
     {
-        fd2 = open(fifoName, O_RDONLY);
+        fd2 = open(fifoName, O_RDONLY | O_NONBLOCK);
         if (fd2 == -1)
             sleep(1);
     } while (fd2 == -1);
 
     tlv_reply_t reply;
-    read(fd2, &reply, sizeof(tlv_reply_t));
+    time_t currtime;
+    currtime=time(NULL);
+
+     while(currtime-starttime<FIFO_TIMEOUT_SECS)
+     {
+        if(read(fd2, &reply, sizeof(tlv_reply_t))>0)
+            break;
+        currtime=time(NULL);
+     }
 
     if(operation == OP_BALANCE)
     {
@@ -121,7 +131,7 @@ int main(int argc, char *argv[])
 
 void getAccountArgs(char *args, req_create_account_t *account)
 {
-    char id[WIDTH_ID + 1];
+    char id[WIDTH_ID + 1]="";
     char balance[WIDTH_BALANCE + 1]="";
     char password[MAX_PASSWORD_LEN+1]="";
 
@@ -131,20 +141,27 @@ void getAccountArgs(char *args, req_create_account_t *account)
         id[i]=args[i];
     }
 
-    for(int i=(strlen(id)); i < strlen(args); i++){
+    for(int i=(strlen(id)+1); i < strlen(args); i++){
          if(args[i] == ' ')
              break;
-         balance[i-(strlen(id))]=args[i];
+         balance[i-(strlen(id)+1)]=args[i];
+         printf("balance i: %c, i: %d\n", args[i], i);
     }
     
-    for(int i=(strlen(id)+strlen(balance)+1); i < strlen(args); i++){
-        password[i-(strlen(id)+strlen(balance)+1)]=args[i];
+    for(int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
+        password[i-(strlen(id)+strlen(balance)+2)]=args[i];
     }
 
+    printf("strlen: %ld\n", strlen(id));
+    printf("password %s \n", password);
+        printf("balance %d \n",atoi(balance));
 
     account->account_id = atoi(id);
     account->balance = atoi(balance);
     strncpy(account->password, password, strlen(password));
+    printf("password %s \n", account->password);
+        printf("balance %d \n", account->balance);
+
 
 }
 
