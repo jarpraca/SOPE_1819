@@ -72,6 +72,8 @@ int main(int argc, char *argv[])
         req_create_account_t account;
         getAccountArgs(args, &account);
         req_value.create = account;
+       
+
     }
     else if (operation == OP_TRANSFER)
     {
@@ -120,8 +122,8 @@ int main(int argc, char *argv[])
 void getAccountArgs(char *args, req_create_account_t *account)
 {
     char id[WIDTH_ID + 1];
-    char balance[WIDTH_BALANCE + 1];
-    char password[MAX_PASSWORD_LEN + 1];
+    char balance[WIDTH_BALANCE + 1]="";
+    char password[MAX_PASSWORD_LEN+1]="";
 
     for(int i=0; i < strlen(args); i++){
         if(args[i] == ' ')
@@ -129,23 +131,21 @@ void getAccountArgs(char *args, req_create_account_t *account)
         id[i]=args[i];
     }
 
-    for(int i=(strlen(id)+1); i < strlen(args); i++){
-
+    for(int i=(strlen(id)); i < strlen(args); i++){
          if(args[i] == ' ')
              break;
-         balance[i-(strlen(id)+1)]=args[i];
+         balance[i-(strlen(id))]=args[i];
     }
     
-    for(int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
-
-        if(args[i] == ' ')
-            break;
-        password[i-(strlen(id)+strlen(balance)+2)]=args[i];
+    for(int i=(strlen(id)+strlen(balance)+1); i < strlen(args); i++){
+        password[i-(strlen(id)+strlen(balance)+1)]=args[i];
     }
+
 
     account->account_id = atoi(id);
     account->balance = atoi(balance);
-    strcpy(account->password, password);
+    strncpy(account->password, password, strlen(password));
+
 }
 
 void getTransferArgs(char* args, req_transfer_t *transfer)

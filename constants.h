@@ -31,14 +31,8 @@
 #define SERVER_FIFO_PATH "/tmp/secure_srv"
 #define USER_FIFO_PATH_PREFIX "/tmp/secure_"
 #define USER_FIFO_PATH_LEN (sizeof(USER_FIFO_PATH_PREFIX) + WIDTH_ID + 1)
-
 #define FIFO_TIMEOUT_SECS 30
 
 #define SEM_NAME  "/sem1"
-
 #define SEM_ACCOUNTS "/sem_accounts"
-
-#define SHM_NAME "/shm1"
-
-#define SHM_SIZE sizeof(tlv_request_t) * 100
 

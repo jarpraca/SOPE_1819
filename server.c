@@ -31,13 +31,13 @@ int main(int argc, char *argv[])
   read(fdFIFO,&request, sizeof(tlv_request_t));
   push(queue, request);
   sem_t* sem;
-  sem= sem_open(SEM_NAME, O_CREAT, 0660);
+  sem= sem_open(SEM_NAME,O_CREAT,0600,0);
   if(sem == SEM_FAILED)
   {
-    perror("READER failure in sem_open()");
+    perror("Server failure in sem_open()");
     exit(3);
   } 
-
+  sem_post(sem);
   pthread_t threads[atoi(argv[1])];
 
   if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
@@ -64,22 +64,30 @@ int main(int argc, char *argv[])
 
   close(fdFIFO);
   unlink(SERVER_FIFO_PATH);
+  
   sem_close(sem);
   sem_unlink(SEM_ACCOUNTS);
   sem_unlink(SEM_NAME);
-  
+ // free(queue->array);
+  free(queue);
   return 0; 
 }
 
-void generate_salt(char* salt){
+char * generate_salt(){
   char characters[] = "0123456789abcdef";
+  char *salt;
+  salt = malloc(SALT_LEN + 1);
 
   srand(time(0));
 
-  for(int i = 0; i < 64; i++){
+  for(int i = 0; i < SALT_LEN; i++){
+    char character[1];
     salt[i] = characters[rand() % 16];
   }
+
+  return salt;
 }
+
 
 bool id_in_use(uint32_t id){
   return (&accounts[id] != NULL);
@@ -102,23 +110,25 @@ int processRequest(tlv_request_t* request)
 {
   char fifoName[USER_FIFO_PATH_LEN];
   char pid[10];
+
   sprintf(pid, "%d", request->value.header.pid);
   strcpy(fifoName, USER_FIFO_PATH_PREFIX);
   strcat(fifoName, pid);
 
   int operation= request->type;
   uint32_t accountID = request->value.header.account_id;
+
   tlv_reply_t reply;
 
   reply.length=sizeof(rep_value_t);
 
   sem_t *sem_accounts;
-  sem_accounts = sem_open(SEM_ACCOUNTS, 0, 0600);
+  sem_accounts = sem_open(SEM_ACCOUNTS, 0, 0600,0);
+  sem_wait(sem_accounts);
 
   switch(operation){
     case OP_CREATE_ACCOUNT:
     {  
-      sem_wait(sem_accounts);
       int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
       logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
       close(logfile);
@@ -138,7 +148,6 @@ int processRequest(tlv_request_t* request)
     }
     case OP_BALANCE:
     {
-      sem_wait(sem_accounts);
       int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
       logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
       close(logfile);
@@ -161,8 +170,6 @@ int processRequest(tlv_request_t* request)
     }
     case OP_TRANSFER:
     {
-
-      sem_wait(sem_accounts);
       int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
       logSyncDelay(logfile, pthread_self() ,request->value.header.account_id, request->value.header.op_delay_ms);
       close(logfile);
@@ -186,7 +193,6 @@ int processRequest(tlv_request_t* request)
     }
     case OP_SHUTDOWN:
     {
-      sem_wait(sem_accounts);
       reply.type=OP_SHUTDOWN;
       rep_value_t value;
       rep_header_t header;
@@ -205,7 +211,7 @@ int processRequest(tlv_request_t* request)
     default:
       break;  
   }
-  
+  sem_post(sem_accounts);
   sem_close(sem_accounts);
 
   int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -227,7 +233,7 @@ void* bankOffice(void * arg)
   bankOfficeOpen(id);
 
   sem_t *sem;
-  sem = sem_open(SEM_NAME,0,0600);
+  sem = sem_open(SEM_NAME,0,0600,0);
   if(sem == SEM_FAILED)
   {
     perror("READER failure in sem_open()");
@@ -240,8 +246,6 @@ void* bankOffice(void * arg)
     printf(" %d\n", id);
 
     tlv_request_t request = pop(queue);
-        printf(" %ld\n", pthread_self());
-
     processRequest(&request);
 
   }
@@ -251,7 +255,6 @@ void* bankOffice(void * arg)
   sem_close(sem);
 
   bankOfficeClose(id);
-      printf("ending thread\n");
 
   return NULL;
 }
@@ -278,26 +281,29 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
 
   new.account_id = id;
   new.balance = balance;
-  char salt[SALT_LEN];
-  generate_salt(salt);
+  char * salt;
+  salt = generate_salt();
   strcpy(new.salt, salt);
-
+  
   char pass_salt[SALT_LEN + MAX_PASSWORD_LEN + 1];
   strcpy(pass_salt, password);
   strcat(pass_salt, new.salt);
 
-  char *hash = getSha256(pass_salt);
+  char *hash;
+  hash = getSha256(pass_salt);
   strcpy(new.hash, hash);
-  free(hash);
 
   accounts[id] = new;
+  free(salt);
+  free(hash);
+
   return 0;
 }
 
 int create_admin_account(const char *password){
   sem_t *sem_accounts;
 
-  sem_accounts = sem_open(SEM_ACCOUNTS, O_CREAT | O_RDWR, 0600, 0);
+  sem_accounts = sem_open(SEM_ACCOUNTS, O_CREAT, 0600, 0);
   if (sem_accounts == SEM_FAILED)
   {
     perror("WRITER failure in sem_open()");
@@ -314,12 +320,12 @@ int create_admin_account(const char *password){
   close(logfile);  
   int ret = create_account(0, password, 0);
 
+  sem_close(sem_accounts);
+
   if (ret == 0)
     return logAccountCreation(slog, 0, &accounts[0]);
   else
     return ret;
-
-  sem_close(sem_accounts);
 }
 
 int create_user_account(uint32_t id, const char *password, uint32_t balance){
@@ -349,14 +355,14 @@ char *getSha256(char *password)
   pid2 = fork();
 
   char *sha256;
-  sha256 = malloc(sizeof(HASH_LEN + 1));
+  sha256 = malloc(HASH_LEN + 1);
 
   if (pid1 == 0)
   {
     dup2(fd1[WRITE], STDOUT_FILENO);
     close(fd1[READ]);
     execlp("echo", "echo", "-n", password, NULL);
-    fprintf(stderr, "Failed to execute echo\n");
+    fprintf(stderr, "Failed to execute sha256sum\n");
     exit(1);
   }
   else if (pid1 > 0)
@@ -369,16 +375,14 @@ char *getSha256(char *password)
     {
       dup2(fd2[WRITE], STDOUT_FILENO);
       waitpid(pid1, &status, 0);
-      close(fd1[READ]);
       execlp("sha256sum", "sha256sum", NULL);
-      fprintf(stderr, "Failed to execute echo\n");
-      exit(1);
+      close(fd1[READ]);
     }
     else if (pid2 > 0)
     {
       int status2;
       close(fd2[WRITE]);
-      read(fd2[READ], sha256, 64);
+      read(fd2[READ], sha256, HASH_LEN);
       waitpid(pid2, &status2, 0);
     }
   }

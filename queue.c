@@ -10,7 +10,7 @@ typedef struct Queue
     tlv_request_t *array;
 } queue_t;
 
-queue_t *createQueue(unsigned int capacity)
+queue_t* createQueue(unsigned int capacity)
 {
     queue_t *queue = (queue_t*)malloc(sizeof(queue_t));
     queue->capacity = capacity;
