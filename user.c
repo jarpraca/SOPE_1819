@@ -109,14 +109,19 @@ int main(int argc, char *argv[])
     tlv_reply_t reply;
     time_t currtime;
     currtime=time(NULL);
-
+    bool timeOut=true;
      while(currtime-starttime<FIFO_TIMEOUT_SECS)
      {
         if(read(fd2, &reply, sizeof(tlv_reply_t))>0)
+        {
+            timeOut=false;
             break;
+        }
         currtime=time(NULL);
      }
 
+    if(timeOut)
+        printf("No reply received in %d seconds \n", FIFO_TIMEOUT_SECS);
     if(operation == OP_BALANCE)
     {
         printf("Balance: %d\n", reply.value.balance.balance);
@@ -167,8 +172,8 @@ void getAccountArgs(char *args, req_create_account_t *account)
 
 void getTransferArgs(char* args, req_transfer_t *transfer)
 {
-    char id[WIDTH_ID + 1];
-    char amount[WIDTH_BALANCE + 1];
+    char id[WIDTH_ID + 1]="";
+    char amount[WIDTH_BALANCE + 1]="";
     for(int i=0; i < strlen(args); i++){
 
         if(args[i] == ' ')
@@ -176,11 +181,11 @@ void getTransferArgs(char* args, req_transfer_t *transfer)
         id[i]=args[i];
     }
 
-    for(int i=strlen(id); i < strlen(args); i++){
+    for(int i=strlen(id)+1; i < strlen(args); i++){
 
         if(args[i] == ' ')
             break;
-        amount[i-strlen(id)]=args[i];
+        amount[i-strlen(id)-1]=args[i];
     }
 
     transfer->account_id = atoi(id);
