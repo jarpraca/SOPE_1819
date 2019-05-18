@@ -37,3 +37,12 @@ int create_user_account(uint32_t id, const char *password, uint32_t balance);
 char *getSha256(char *filename);
 
 int authenticate(uint32_t accountID, const char password[]);
+
+int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid);
+
+int mutex_lock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid);
+
+int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int val);
+
+int logDelaySync(int threadID, int id, int delay_ms);
+

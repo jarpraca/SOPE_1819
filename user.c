@@ -56,12 +56,15 @@ int main(int argc, char *argv[])
             sleep(1);
     } while (fd1 == -1);
 
+    tlv_request_t request;
+
     req_header_t req_header;
 
     req_header.pid = pidN;
     req_header.account_id = id;
     req_header.op_delay_ms = delay;
     strcpy(req_header.password, password);
+    request.length = sizeof(req_header);
 
     req_value_t req_value;
 
@@ -72,21 +75,18 @@ int main(int argc, char *argv[])
         req_create_account_t account;
         getAccountArgs(args, &account);
         req_value.create = account;
-       
-
+        request.length += sizeof(account);
     }
     else if (operation == OP_TRANSFER)
     {
         req_transfer_t transfer;
         getTransferArgs(argv[5], &transfer);
         req_value.transfer = transfer;
+        request.length += sizeof(transfer);
     }
-
-    tlv_request_t request;
 
     request.type = operation;
     request.value = req_value;
-    request.length = sizeof(req_value);
 
     int logfile = open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logRequest(logfile, pidN, &request);
@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
         printf("No reply received in %d seconds \n", FIFO_TIMEOUT_SECS);
     if(operation == OP_BALANCE)
     {
-        printf("Balance: %d\n", reply.value.balance.balance);
+        printf("Balance: %d€\n", reply.value.balance.balance);
     }
 
     logfile = open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -150,24 +150,14 @@ void getAccountArgs(char *args, req_create_account_t *account)
          if(args[i] == ' ')
              break;
          balance[i-(strlen(id)+1)]=args[i];
-         printf("balance i: %c, i: %d\n", args[i], i);
     }
     
     for(int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
         password[i-(strlen(id)+strlen(balance)+2)]=args[i];
     }
-
-    printf("strlen: %ld\n", strlen(id));
-    printf("password %s \n", password);
-        printf("balance %d \n",atoi(balance));
-
     account->account_id = atoi(id);
     account->balance = atoi(balance);
-    strncpy(account->password, password, strlen(password));
-    printf("password %s \n", account->password);
-        printf("balance %d \n", account->balance);
-
-
+    strncpy(account->password, password, MAX_PASSWORD_LEN);
 }
 
 void getTransferArgs(char* args, req_transfer_t *transfer)
@@ -187,7 +177,6 @@ void getTransferArgs(char* args, req_transfer_t *transfer)
             break;
         amount[i-strlen(id)-1]=args[i];
     }
-
     transfer->account_id = atoi(id);
     transfer->amount = atoi(amount);
 }
