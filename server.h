@@ -42,6 +42,10 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
 
 int mutex_lock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid);
 
+int mutex_unlock_account(int threadID, sync_role_t role, int pid);
+
+int mutex_lock_account(int threadID, sync_role_t role, int pid);
+
 int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int val);
 
 int logDelaySync(int threadID, int id, int delay_ms);

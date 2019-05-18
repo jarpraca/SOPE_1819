@@ -6,7 +6,7 @@ bank_account_t accounts[MAX_BANK_ACCOUNTS];
 bool shutdown=false;
 int numThreads;
 pthread_mutex_t fifoMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t accountsMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t accountsMutex[MAX_BANK_ACCOUNTS];
 
 int main(int argc, char *argv[])
 {
@@ -33,8 +33,14 @@ int main(int argc, char *argv[])
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
         if (fdFIFO == -1) sleep(1);
   } while (fdFIFO == -1);
-
+  int fullValue;
+  sem_getvalue(&full, &fullValue);
+  logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , fullValue);
   sem_init(&full, 0, 0);
+  
+  int emptyValue;
+  sem_getvalue(&full, &emptyValue);
+  logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , emptyValue);
   sem_init(&empty, 0, MAX_QUEUE_SIZE);
 
   pthread_t threads[atoi(argv[1])];
@@ -63,19 +69,42 @@ while(!shutdown)
       int val;
       sem_getvalue(&empty, &val);
       logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_WAIT , SYNC_ROLE_PRODUCER, request.value.header.pid, val);  
+      printf("id: %d, waiting before main sem wait \n", 0);
       sem_wait(&empty);
+      printf("id: %d, waiting before main mutex lock \n", 0);
       mutex_lock(&fifoMutex, MAIN_THREAD_ID, SYNC_ROLE_PRODUCER, request.value.header.pid);
       push(queue, request);
+      printf("id: %d, waiting before main mutex unlock \n", 0);
       mutex_unlock(&fifoMutex, MAIN_THREAD_ID, SYNC_ROLE_PRODUCER, request.value.header.pid);
+      sem_post(&full);
       sem_getvalue(&full, &val);
       logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_POST , SYNC_ROLE_PRODUCER, request.value.header.pid, val );  
-      sem_post(&full);
+
     }
     else
     {
       tlv_reply_t reply;
       reply.type=request.type;
       rep_value_t value;
+      if(request.type==OP_BALANCE)
+      {
+        rep_balance_t balance;
+        balance.balance=0;
+        value.balance=balance;
+      }
+      if(request.type==OP_TRANSFER)
+      {
+        rep_transfer_t transfer;
+        transfer.balance=0;
+        value.transfer=transfer;
+      }
+      if(request.type==OP_SHUTDOWN)
+      {
+        rep_shutdown_t shutdownRep;
+        shutdownRep.active_offices=atoi(argv[1]);
+        value.shutdown=shutdownRep;
+      }
+
       rep_header_t header;
       header.account_id = request.value.header.account_id;
       header.ret_code = ret;
@@ -178,10 +207,9 @@ int processRequest(tlv_request_t* request, int threadID)
       if (accountID != 0)
         header.ret_code = RC_OP_NALLOW;
       else
-      { 
-        
+      {
         printf("id: %d, waiting before lock \n", threadID);
-        mutex_lock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id); 
+        mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id); 
         printf("id: %d, waiting after lock \n", threadID);
         logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
         usleep(request->value.header.op_delay_ms*1000);
@@ -193,7 +221,7 @@ int processRequest(tlv_request_t* request, int threadID)
           logAccountCreation(logfile, threadID, &accounts[request->value.create.account_id]);
           close(logfile);
         }
-        mutex_unlock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
+        mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
         printf("id: %d, mutex unlocked \n", threadID);
 
       }
@@ -211,11 +239,11 @@ int processRequest(tlv_request_t* request, int threadID)
         header.ret_code = RC_OK;
       value.header=header;
       rep_balance_t balance;
-      mutex_lock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
       usleep(request->value.header.op_delay_ms*1000);
       logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
       balance.balance=accounts[accountID].balance;
-      mutex_unlock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
       value.balance=balance;
       reply.value=value;
       reply.length=sizeof(header) + sizeof(balance);
@@ -224,30 +252,31 @@ int processRequest(tlv_request_t* request, int threadID)
     case OP_TRANSFER:
     {
       int ret;
-      
-      mutex_lock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      rep_transfer_t transfer;
+      transfer.balance = 0;
+      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
       usleep(request->value.header.op_delay_ms*1000);
       logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
-      if(accounts[request->value.header.account_id].balance-request->value.transfer.amount>=MIN_BALANCE)
-      {
-        if(accounts[request->value.transfer.account_id].balance+request->value.transfer.amount<=MAX_BALANCE)
+      if((accounts[request->value.header.account_id].balance - request->value.transfer.amount >= MIN_BALANCE) && 
+      (accounts[request->value.transfer.account_id].balance + request->value.transfer.amount <= MAX_BALANCE))
         {
-          accounts[request->value.header.account_id].balance-=request->value.transfer.amount;
-          accounts[request->value.transfer.account_id].balance+=request->value.transfer.amount;
+          accounts[request->value.header.account_id].balance -= request->value.transfer.amount;
+          accounts[request->value.transfer.account_id].balance += request->value.transfer.amount;
+          transfer.balance = request->value.transfer.amount;
           ret=RC_OK;
         }
         else
-          ret=RC_NO_FUNDS;
-      }
-      mutex_unlock(&accountsMutex, threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+            ret=RC_NO_FUNDS;
+      mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
       reply.type=OP_TRANSFER;
       if(accountID == 0 || request->value.transfer.account_id==0)
-        header.ret_code = RC_OP_NALLOW;
+        {
+          header.ret_code = RC_OP_NALLOW;
+          transfer.balance = 0;
+        }
       else
         header.ret_code = ret;
       value.header=header;
-      rep_transfer_t transfer;
-      transfer.balance= request->value.transfer.amount;
       value.transfer= transfer;
       reply.value=value;
       reply.length=sizeof(header) + sizeof(transfer);
@@ -270,7 +299,10 @@ int processRequest(tlv_request_t* request, int threadID)
       rep_shutdown_t shutdownRep;
 
       if(accountID != 0)
+      {
         header.ret_code = RC_OP_NALLOW;
+        shutdownRep.active_offices=numThreads;
+      }
       else
       {
         header.ret_code = RC_OK;
@@ -318,16 +350,21 @@ void* bankOffice(void * arg)
     sem_getvalue(&full, &val);
 
     logSemMech(id, SYNC_OP_SEM_WAIT , SYNC_ROLE_CONSUMER, 0 , val );  
+    printf("id: %d, waiting before sem wait\n", id);
     sem_wait(&full);
+    printf("id: %d, waiting after sem wait\n", id);
+
     if(shutdown && ((val-1)==0|| val==0))
       break;
     mutex_lock(&fifoMutex, id, SYNC_ROLE_CONSUMER, request.value.header.pid);
     request = pop(queue);
     mutex_unlock(&fifoMutex, id, SYNC_ROLE_CONSUMER, request.value.header.pid);;
+        printf("id: %d, waiting before process request\n", id);
+
     processRequest(&request, id);
+    sem_post(&empty);
     sem_getvalue(&empty, &val);
     logSemMech(id, SYNC_OP_SEM_POST , SYNC_ROLE_CONSUMER, request.value.header.pid , val );  
-    sem_post(&empty);
     sem_getvalue(&full,&value);
   }while(!shutdown || value!=0);
 
@@ -355,7 +392,7 @@ void bankOfficeClose(int id)
 int create_account(uint32_t id, const char *password, uint32_t balance)
 {
   bank_account_t new;
-
+  pthread_mutex_init(&accountsMutex[id], NULL);
   new.account_id = id;
   new.balance = balance;
   char * salt;
@@ -475,6 +512,23 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
   logSyncMech(logfile,threadID, SYNC_OP_MUTEX_UNLOCK ,role, pid);
   close(logfile);
 }
+
+int mutex_lock_account(int threadID, sync_role_t role, int id)
+{
+  pthread_mutex_lock(&accountsMutex[id]);
+  int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logSyncMech(logfile, threadID, SYNC_OP_MUTEX_LOCK, role, id);
+  close(logfile);
+}
+
+int mutex_unlock_account(int threadID, sync_role_t role, int id)
+{
+  pthread_mutex_unlock(&accountsMutex[id]);
+  int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logSyncMech(logfile,threadID, SYNC_OP_MUTEX_UNLOCK ,role, id);
+  close(logfile);
+}
+
 
 int logDelaySync(int threadID, int id, int delay_ms)
 {
