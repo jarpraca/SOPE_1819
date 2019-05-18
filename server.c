@@ -254,9 +254,15 @@ int processRequest(tlv_request_t* request, int threadID)
       int ret;
       rep_transfer_t transfer;
       transfer.balance = 0;
+
+      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
+      usleep(request->value.header.op_delay_ms * 1000);
+      logDelaySync(threadID, request->value.header.account_id, request->value.header.op_delay_ms);
+
       mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
-      usleep(request->value.header.op_delay_ms*1000);
-      logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
+      usleep(request->value.header.op_delay_ms * 1000);
+      logDelaySync(threadID, request->value.create.account_id, request->value.header.op_delay_ms);
+
       if((accounts[request->value.header.account_id].balance - request->value.transfer.amount >= MIN_BALANCE) && 
       (accounts[request->value.transfer.account_id].balance + request->value.transfer.amount <= MAX_BALANCE))
         {
@@ -268,6 +274,7 @@ int processRequest(tlv_request_t* request, int threadID)
         else
             ret=RC_NO_FUNDS;
       mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
       reply.type=OP_TRANSFER;
       if(accountID == 0 || request->value.transfer.account_id==0)
         {
