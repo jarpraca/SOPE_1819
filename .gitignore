@@ -4,3 +4,6 @@ user
 server
 slog.txt
 ulog.txt
+Makefile~
+server.o
+user.o
