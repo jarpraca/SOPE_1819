@@ -8,6 +8,7 @@ int numThreads;
 pthread_mutex_t fifoMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t accountsMutex[MAX_BANK_ACCOUNTS];
 int active_bank_offices=0;
+
 int main(int argc, char *argv[])
 {
   queue = createQueue(MAX_QUEUE_SIZE);
@@ -15,7 +16,7 @@ int main(int argc, char *argv[])
   if (argc < 2)
   {
     printf("Insufficient number of arguments\n");
-    return 1;
+    return RC_OTHER;
   }
 
   fclose(fopen(SERVER_LOGFILE, "w"));
@@ -61,9 +62,12 @@ int main(int argc, char *argv[])
   tlv_request_t request;
   while(!shutdown)
   {
-    int numRead = read(fdFIFO,&request, sizeof(tlv_request_t));
+    int numRead = read(fdFIFO, &request, sizeof(tlv_request_t));
     if(numRead!=sizeof(tlv_request_t))
       continue;
+    int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logRequest(logfile, request.value.header.pid, &request);
+    close(logfile);
     int ret;
     if((ret=authenticate(request.value.header.account_id, request.value.header.password))==RC_OK)
     {
@@ -112,18 +116,7 @@ int main(int argc, char *argv[])
       int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
       logReply(logfile, MAIN_THREAD_ID, &reply);
       close(logfile);
-      char fifoName[USER_FIFO_PATH_LEN];
-      char pid[10];
-
-      sprintf(pid, "%d", request.value.header.pid);
-      strcpy(fifoName, USER_FIFO_PATH_PREFIX);
-      strcat(fifoName, pid);
-
-      mkfifo(fifoName, 0660);
-      int fd= open(fifoName,O_WRONLY);
-      write(fd, &reply, sizeof(tlv_reply_t));
-      close(fd);
-      unlink(fifoName);
+      sendReply(request.value.header.pid, reply);
     }
   }
 
@@ -136,6 +129,10 @@ int main(int argc, char *argv[])
   sem_destroy(&full);
   sem_destroy(&empty);
   free(queue);
+  for(int i=0; i<MAX_BANK_ACCOUNTS;i++)
+  {
+    pthread_mutex_destroy(&accountsMutex[i]);
+  }
   return 0; 
 }
 
@@ -229,11 +226,11 @@ int processRequest(tlv_request_t* request, int threadID)
         header.ret_code = RC_OK;
       value.header=header;
       rep_balance_t balance;
-      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
       usleep(request->value.header.op_delay_ms*1000);
       logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
       balance.balance=accounts[accountID].balance;
-      mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id);
+      mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
       value.balance=balance;
       reply.value=value;
       reply.length=sizeof(header) + sizeof(balance);
@@ -302,15 +299,9 @@ int processRequest(tlv_request_t* request, int threadID)
       close(logfile);
       usleep(request->value.header.op_delay_ms*1000);
 
-      int val;
-
-      sem_getvalue(&full, &val);
-      for(int i=0; i<numThreads-1; i++)
-        sem_post(&full);
-
       reply.type=OP_SHUTDOWN;
       rep_shutdown_t shutdownRep;
-
+      reply.length=sizeof(header);
       if(accountID != 0)
       {
         header.ret_code = RC_OP_NALLOW;
@@ -319,27 +310,22 @@ int processRequest(tlv_request_t* request, int threadID)
       {
         header.ret_code = RC_OK;
         shutdown=true;
+        for(int i=0; i<numThreads-1; i++)
+          sem_post(&full);
+        reply.length+= sizeof(shutdownRep);
+        sleep(0.00001);
+        shutdownRep.active_offices = active_bank_offices;
+        value.shutdown= shutdownRep;
       }
-      shutdownRep.active_offices = active_bank_offices;    
       value.header=header;
-      value.shutdown= shutdownRep;
       reply.value=value;
-      reply.length=sizeof(header) + sizeof(shutdownRep);
       break;
     }
     default:
       break;  
   }
 
-  int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-  logReply(logfile, threadID, &reply);
-  close(logfile);
-
-  mkfifo(fifoName, 0660);
-  int fd= open(fifoName,O_WRONLY);
-  write(fd, &reply, sizeof(tlv_reply_t));
-  close(fd);
-  unlink(fifoName);
+  sendReply(request->value.header.pid, reply);
   return RC_OK;
 }
 
@@ -397,7 +383,6 @@ void bankOfficeClose(int id)
 int create_account(uint32_t id, const char *password, uint32_t balance)
 {
   bank_account_t new;
-  pthread_mutex_init(&accountsMutex[id], NULL);
   new.account_id = id;
   new.balance = balance;
   char * salt;
@@ -448,6 +433,9 @@ int create_user_account(uint32_t id, const char *password, uint32_t balance){
 
   if (balance < MIN_BALANCE || balance > MAX_BALANCE)
     return RC_OTHER;
+
+  pthread_mutex_init(&accountsMutex[id], NULL);
+  accountsMutex[id] = *(pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
 
   return create_account(id, password, balance);
 }
@@ -522,7 +510,9 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
 
 int mutex_lock_account(int threadID, sync_role_t role, int id)
 {
+  printf("aqui\n");
   pthread_mutex_lock(&accountsMutex[id]);
+  printf("depois\n");
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile, threadID, SYNC_OP_MUTEX_LOCK, role, id);
   close(logfile);
@@ -553,4 +543,48 @@ int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int va
     logSyncMechSem(logfile,id, sync_op , role, pid , val );  
     close(logfile);
     return RC_OK;
+}
+
+int sendReply(int pidN, tlv_reply_t reply)
+{
+  char fifoName[USER_FIFO_PATH_LEN];
+  char pid[10];
+  sprintf(pid, "%d", pidN);
+  strcpy(fifoName, USER_FIFO_PATH_PREFIX);
+  strcat(fifoName, pid);
+
+  mkfifo(fifoName, 0660);
+
+  tlv_reply_t new_reply = reply;
+
+  int fd;
+  bool user_down = true;
+  for(int i=0;i<5;i++)
+  {
+    fd = open(fifoName, O_WRONLY | O_NONBLOCK);
+    if (fd == -1)
+        sleep(1);
+    else
+    {
+        user_down=false;
+        break;
+    }          
+  }
+  if(user_down)
+  {
+    new_reply.value.header.ret_code=RC_USR_DOWN;
+    int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logReply(logfile, pidN, &new_reply);
+    close(logfile);
+    return RC_USR_DOWN;
+  }
+
+  write(fd, &new_reply, sizeof(tlv_reply_t));
+  int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+  logReply(logfile, pidN, &new_reply);
+  close(logfile);
+
+  close(fd);
+  unlink(fifoName);
+  return RC_OK;
 }

@@ -7,6 +7,7 @@
 #define ADMIN_ACCOUNT_ID 0
 #define MAIN_THREAD_ID 0
 #define MAX_QUEUE_SIZE 5
+#define MAX_TRIES_OPEN_FIFO 5
 
 #define MIN_PASSWORD_LEN 8
 #define MAX_PASSWORD_LEN 20

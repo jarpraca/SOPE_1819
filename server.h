@@ -50,3 +50,4 @@ int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int va
 
 int logDelaySync(int threadID, int id, int delay_ms);
 
+int sendReply(int pid, tlv_reply_t reply);

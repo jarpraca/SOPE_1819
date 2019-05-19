@@ -10,51 +10,43 @@ int main(int argc, char *argv[])
     if (argc < 6)
     {
         printf("Insufficient number of arguments\n");
-        return 1;
+        return RC_OTHER;
     }
 
     int id = atoi(argv[1]);
     char *password = argv[2];
     int delay = atoi(argv[3]);
+    int operation = atoi(argv[4]);
 
     if (id < 0 || id > 4095)
     {
         printf("Id must be a number between 1 and %d\n", MAX_BANK_ACCOUNTS);
-        return 1;
+        return RC_OTHER;
     }
 
     if (strlen(password) < MIN_PASSWORD_LEN || strlen(password) > MAX_PASSWORD_LEN + 1)
     {
         printf("Password must have between %d and %d characters\n", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN);
-        return 1;
+        return RC_OTHER;
     }
-
+    
     if (delay < 0)
     {
         printf("Delay cannot be a negative number\n");
-        return 1;
+        return RC_OTHER;
     }
 
-    if (atoi(argv[4]) < 0 || atoi(argv[4]) > 4)
+    if (operation < 0 || operation >= __OP_MAX_NUMBER)
     {
         printf("Operation must correspond to a number between 0 and 4\n");
-        return 1;
+        return RC_OTHER;
     }
-
-    int operation = atoi(argv[4]);
 
     char *args = argv[5];
 
     sprintf(pid, "%d", pidN);
     strcpy(fifoName, USER_FIFO_PATH_PREFIX);
     strcat(fifoName, pid);
-
-    do
-    {
-        fd1 = open(SERVER_FIFO_PATH, O_WRONLY | O_NONBLOCK);
-        if (fd1 == -1)
-            sleep(1);
-    } while (fd1 == -1);
 
     tlv_request_t request;
 
@@ -110,6 +102,30 @@ int main(int argc, char *argv[])
     time_t starttime;
     starttime=time(NULL);
 
+    bool server_down = true;
+    for(int i=0;i<MAX_TRIES_OPEN_FIFO;i++)
+    {
+            fd1 = open(SERVER_FIFO_PATH, O_WRONLY | O_NONBLOCK);
+            if (fd1 == -1)
+                sleep(1);
+            else
+            {
+                server_down=false;
+                break;
+            }          
+    }
+    if(server_down)
+    {
+        tlv_reply_t reply;
+        reply.type=request.type;
+        reply.value.header.account_id=request.value.header.account_id;
+        reply.value.header.ret_code=RC_SRV_DOWN;
+        int logfile = open(USER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        logReply(logfile, pidN, &reply);
+        close(logfile);
+        return RC_SRV_DOWN;
+    }
+    
     write(fd1, &request, sizeof(request));
     close(fd1);
 
@@ -151,7 +167,7 @@ int main(int argc, char *argv[])
     logReply(logfile, pidN, &reply);
     close(logfile);
     close(fd2);
-    return 0;
+    return RC_OK;
 }
 
 void getAccountArgs(char *args, req_create_account_t *account)
