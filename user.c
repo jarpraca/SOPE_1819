@@ -125,15 +125,15 @@ int main(int argc, char *argv[])
     time_t currtime;
     currtime=time(NULL);
     bool timeOut=true;
-     while(currtime-starttime<FIFO_TIMEOUT_SECS)
-     {
+    while(currtime-starttime<FIFO_TIMEOUT_SECS)
+    {
         if(read(fd2, &reply, sizeof(tlv_reply_t))>0)
         {
             timeOut=false;
             break;
         }
         currtime=time(NULL);
-     }
+    }
 
     if(timeOut)
     {
