@@ -6,7 +6,7 @@ bank_account_t accounts[MAX_BANK_ACCOUNTS];
 bool shutdown=false;
 int numThreads;
 pthread_mutex_t fifoMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t accountsMutex= PTHREAD_MUTEX_INITIALIZER;//[MAX_BANK_ACCOUNTS];
+pthread_mutex_t accountsMutex[MAX_BANK_ACCOUNTS];
 
 int main(int argc, char *argv[])
 {
@@ -208,7 +208,9 @@ int processRequest(tlv_request_t* request, int threadID)
         header.ret_code = RC_OP_NALLOW;
       else
       {
-  //      mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id); 
+        printf("id: %d, waiting before lock \n", threadID);
+      //  mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id); 
+        printf("id: %d, waiting after lock \n", threadID);
         logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
         usleep(request->value.header.op_delay_ms*1000);
          
@@ -219,7 +221,7 @@ int processRequest(tlv_request_t* request, int threadID)
           logAccountCreation(logfile, threadID, &accounts[request->value.create.account_id]);
           close(logfile);
         }
-    //    mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
+     //   mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
         printf("id: %d, mutex unlocked \n", threadID);
 
       }
@@ -397,7 +399,7 @@ void bankOfficeClose(int id)
 int create_account(uint32_t id, const char *password, uint32_t balance)
 {
   bank_account_t new;
- // pthread_mutex_init(&accountsMutex[id], NULL);
+  pthread_mutex_init(&accountsMutex[id], NULL);
   new.account_id = id;
   new.balance = balance;
   char * salt;
@@ -521,7 +523,7 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
 int mutex_lock_account(int threadID, sync_role_t role, int id)
 {
   printf("inicio lock mutex\n");
-  pthread_mutex_lock(&accountsMutex);
+  pthread_mutex_lock(&accountsMutex[id]);
     printf("depois lock mutex\n");
 
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -531,7 +533,7 @@ int mutex_lock_account(int threadID, sync_role_t role, int id)
 
 int mutex_unlock_account(int threadID, sync_role_t role, int id)
 {
-  pthread_mutex_unlock(&accountsMutex);
+  pthread_mutex_unlock(&accountsMutex[id]);
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile,threadID, SYNC_OP_MUTEX_UNLOCK ,role, id);
   close(logfile);
