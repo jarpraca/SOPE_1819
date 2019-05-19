@@ -177,7 +177,7 @@ void getAccountArgs(char *args, req_create_account_t *account)
     }
     account->account_id = atoi(id);
     account->balance = atoi(balance);
-    strncpy(account->password, password, MAX_PASSWORD_LEN);
+    strncpy(account->password, password, MAX_PASSWORD_LEN+1);
 }
 
 void getTransferArgs(char* args, req_transfer_t *transfer)
