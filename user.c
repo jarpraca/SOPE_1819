@@ -140,19 +140,19 @@ void getAccountArgs(char *args, req_create_account_t *account)
     char balance[WIDTH_BALANCE + 1]="";
     char password[MAX_PASSWORD_LEN+1]="";
 
-    for(int i=0; i < strlen(args); i++){
+    for(unsigned int i=0; i < strlen(args); i++){
         if(args[i] == ' ')
             break;
         id[i]=args[i];
     }
 
-    for(int i=(strlen(id)+1); i < strlen(args); i++){
+    for(unsigned int i=(strlen(id)+1); i < strlen(args); i++){
          if(args[i] == ' ')
              break;
          balance[i-(strlen(id)+1)]=args[i];
     }
     
-    for(int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
+    for(unsigned int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
         password[i-(strlen(id)+strlen(balance)+2)]=args[i];
     }
     account->account_id = atoi(id);
@@ -164,14 +164,14 @@ void getTransferArgs(char* args, req_transfer_t *transfer)
 {
     char id[WIDTH_ID + 1]="";
     char amount[WIDTH_BALANCE + 1]="";
-    for(int i=0; i < strlen(args); i++){
+    for(unsigned int i=0; i < strlen(args); i++){
 
         if(args[i] == ' ')
             break;
         id[i]=args[i];
     }
 
-    for(int i=strlen(id)+1; i < strlen(args); i++){
+    for(unsigned int i=strlen(id)+1; i < strlen(args); i++){
 
         if(args[i] == ' ')
             break;

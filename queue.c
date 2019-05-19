@@ -22,7 +22,7 @@ queue_t* createQueue(unsigned int capacity)
 
 int isFull(queue_t *queue)
 {
-    return (queue->size == queue->capacity);
+    return ((unsigned int)queue->size == queue->capacity);
 }
 
 bool isEmpty(queue_t *queue)
@@ -44,7 +44,10 @@ tlv_request_t pop(queue_t *queue)
 {
     tlv_request_t request;
     if (isEmpty(queue))
+    {
+        request.length=0;
         return request;
+    }
     request = queue->array[queue->front];
     queue->front = (queue->front + 1) % queue->capacity;
     queue->size = queue->size - 1;

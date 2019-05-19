@@ -7,7 +7,7 @@ bool shutdown=false;
 int numThreads;
 pthread_mutex_t fifoMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t accountsMutex[MAX_BANK_ACCOUNTS];
-
+int active_bank_offices=0;
 int main(int argc, char *argv[])
 {
   queue = createQueue(MAX_QUEUE_SIZE);
@@ -33,15 +33,16 @@ int main(int argc, char *argv[])
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
         if (fdFIFO == -1) sleep(1);
   } while (fdFIFO == -1);
+
+  sem_init(&full, 0, 0);
   int fullValue;
   sem_getvalue(&full, &fullValue);
   logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , fullValue);
-  sem_init(&full, 0, 0);
   
-  int emptyValue;
-  sem_getvalue(&full, &emptyValue);
-  logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , emptyValue);
   sem_init(&empty, 0, MAX_QUEUE_SIZE);
+  int emptyValue;
+  sem_getvalue(&empty, &emptyValue);
+  logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , emptyValue);
 
   pthread_t threads[atoi(argv[1])];
   numThreads=atoi(argv[1]);
@@ -57,24 +58,21 @@ int main(int argc, char *argv[])
 
   create_admin_account(argv[2]);
 
-tlv_request_t request;
-while(!shutdown)
-{
-  int numRead = read(fdFIFO,&request, sizeof(tlv_request_t));
-  if(numRead!=sizeof(tlv_request_t))
-    continue;
+  tlv_request_t request;
+  while(!shutdown)
+  {
+    int numRead = read(fdFIFO,&request, sizeof(tlv_request_t));
+    if(numRead!=sizeof(tlv_request_t))
+      continue;
     int ret;
     if((ret=authenticate(request.value.header.account_id, request.value.header.password))==RC_OK)
     {
       int val;
       sem_getvalue(&empty, &val);
       logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_WAIT , SYNC_ROLE_PRODUCER, request.value.header.pid, val);  
-      printf("id: %d, waiting before main sem wait \n", 0);
       sem_wait(&empty);
-      printf("id: %d, waiting before main mutex lock \n", 0);
       mutex_lock(&fifoMutex, MAIN_THREAD_ID, SYNC_ROLE_PRODUCER, request.value.header.pid);
       push(queue, request);
-      printf("id: %d, waiting before main mutex unlock \n", 0);
       mutex_unlock(&fifoMutex, MAIN_THREAD_ID, SYNC_ROLE_PRODUCER, request.value.header.pid);
       sem_post(&full);
       sem_getvalue(&full, &val);
@@ -127,7 +125,6 @@ while(!shutdown)
       close(fd);
       unlink(fifoName);
     }
-    
   }
 
   for(int i = 1; i <= atoi(argv[1]); i++)
@@ -150,7 +147,6 @@ char * generate_salt(){
   srand(time(0));
 
   for(int i = 0; i < SALT_LEN; i++){
-    char character[1];
     salt[i] = characters[rand() % 16];
   }
 
@@ -208,9 +204,6 @@ int processRequest(tlv_request_t* request, int threadID)
         header.ret_code = RC_OP_NALLOW;
       else
       {
-        printf("id: %d, waiting before lock \n", threadID);
-      //  mutex_lock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.create.account_id); 
-        printf("id: %d, waiting after lock \n", threadID);
         logDelaySync(threadID ,request->value.header.account_id, request->value.header.op_delay_ms);
         usleep(request->value.header.op_delay_ms*1000);
          
@@ -221,9 +214,6 @@ int processRequest(tlv_request_t* request, int threadID)
           logAccountCreation(logfile, threadID, &accounts[request->value.create.account_id]);
           close(logfile);
         }
-     //   mutex_unlock_account(threadID, SYNC_ROLE_ACCOUNT, request->value.header.account_id);
-        printf("id: %d, mutex unlocked \n", threadID);
-
       }
       value.header = header;
       reply.value = value;
@@ -308,22 +298,15 @@ int processRequest(tlv_request_t* request, int threadID)
       if(accountID != 0)
       {
         header.ret_code = RC_OP_NALLOW;
-        shutdownRep.active_offices=numThreads;
       }
       else
       {
         header.ret_code = RC_OK;
         shutdown=true;
-        int fullValue;
-        sem_getvalue(&full, &fullValue);
-        if(fullValue>= numThreads)
-          shutdownRep.active_offices = numThreads;
-        else
-          shutdownRep.active_offices = fullValue;    
       }
+      shutdownRep.active_offices = active_bank_offices;    
       value.header=header;
-         
-      reply.value.shutdown= shutdownRep;
+      value.shutdown= shutdownRep;
       reply.value=value;
       reply.length=sizeof(header) + sizeof(shutdownRep);
       break;
@@ -357,16 +340,13 @@ void* bankOffice(void * arg)
     sem_getvalue(&full, &val);
 
     logSemMech(id, SYNC_OP_SEM_WAIT , SYNC_ROLE_CONSUMER, 0 , val );  
-    printf("id: %d, waiting before sem wait\n", id);
     sem_wait(&full);
-    printf("id: %d, waiting after sem wait\n", id);
 
     if(shutdown && ((val-1)==0|| val==0))
       break;
     mutex_lock(&fifoMutex, id, SYNC_ROLE_CONSUMER, request.value.header.pid);
     request = pop(queue);
     mutex_unlock(&fifoMutex, id, SYNC_ROLE_CONSUMER, request.value.header.pid);;
-        printf("id: %d, waiting before process request\n", id);
 
     processRequest(&request, id);
     sem_post(&empty);
@@ -383,6 +363,7 @@ void* bankOffice(void * arg)
 void bankOfficeOpen(int id)
 {
   int logfile;
+  active_bank_offices++;
   logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logBankOfficeOpen(logfile, id, pthread_self());
   close(logfile);
@@ -391,6 +372,7 @@ void bankOfficeOpen(int id)
 void bankOfficeClose(int id)
 {
   int logfile;
+  active_bank_offices--;
   logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logBankOfficeClose(logfile, id, pthread_self());
   close(logfile);
@@ -510,6 +492,7 @@ int mutex_lock(pthread_mutex_t *mutex, int threadID, sync_role_t role, int id)
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile, threadID, SYNC_OP_MUTEX_LOCK, role, id);
   close(logfile);
+  return RC_OK;
 }
 
 int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid)
@@ -518,17 +501,16 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile,threadID, SYNC_OP_MUTEX_UNLOCK ,role, pid);
   close(logfile);
+  return RC_OK;
 }
 
 int mutex_lock_account(int threadID, sync_role_t role, int id)
 {
-  printf("inicio lock mutex\n");
   pthread_mutex_lock(&accountsMutex[id]);
-    printf("depois lock mutex\n");
-
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile, threadID, SYNC_OP_MUTEX_LOCK, role, id);
   close(logfile);
+  return RC_OK;
 }
 
 int mutex_unlock_account(int threadID, sync_role_t role, int id)
@@ -537,6 +519,7 @@ int mutex_unlock_account(int threadID, sync_role_t role, int id)
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile,threadID, SYNC_OP_MUTEX_UNLOCK ,role, id);
   close(logfile);
+  return RC_OK;
 }
 
 
@@ -545,6 +528,7 @@ int logDelaySync(int threadID, int id, int delay_ms)
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncDelay(logfile, threadID,id, delay_ms);
   close(logfile);  
+  return RC_OK;
 }
 
 int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int val)
@@ -552,4 +536,5 @@ int logSemMech(int id, sync_mech_op_t sync_op, sync_role_t role, int pid, int va
     int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logSyncMechSem(logfile,id, sync_op , role, pid , val );  
     close(logfile);
+    return RC_OK;
 }
