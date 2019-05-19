@@ -19,25 +19,25 @@ int main(int argc, char *argv[])
 
     if (id < 0 || id > 4095)
     {
-        printf("id must be a number between 0 and 4095\n");
+        printf("Id must be a number between 1 and %d\n", MAX_BANK_ACCOUNTS);
         return 1;
     }
 
     if (strlen(password) < MIN_PASSWORD_LEN || strlen(password) > MAX_PASSWORD_LEN + 1)
     {
-        printf("password must have between 8 and 20 characters\n");
+        printf("Password must have between %d and %d characters\n", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN);
         return 1;
     }
 
     if (delay < 0)
     {
-        printf("delay cannot be a negative number\n");
+        printf("Delay cannot be a negative number\n");
         return 1;
     }
 
     if (atoi(argv[4]) < 0 || atoi(argv[4]) > 4)
     {
-        printf("operation must correspond to a number between 0 and 4\n");
+        printf("Operation must correspond to a number between 0 and 4\n");
         return 1;
     }
 
@@ -74,6 +74,17 @@ int main(int argc, char *argv[])
     {
         req_create_account_t account;
         getAccountArgs(args, &account);
+        if(account.balance>MAX_BALANCE || account.balance<MIN_BALANCE)
+        {
+            printf("Balance of the account to be created not valid. Insert a value between %ld and %ld \n", MIN_BALANCE, MAX_BALANCE);
+            return 1;
+        }
+        if(account.account_id>MAX_BANK_ACCOUNTS || account.account_id<1)
+        {
+            printf("Id of the account to be created not valid. Insert a value between %d and %d \n", 1, MAX_BANK_ACCOUNTS-1);
+            return 1;
+        }
+        
         req_value.create = account;
         request.length += sizeof(account);
     }
@@ -81,6 +92,11 @@ int main(int argc, char *argv[])
     {
         req_transfer_t transfer;
         getTransferArgs(argv[5], &transfer);
+        if(transfer.amount>MAX_BALANCE || transfer.amount<MIN_BALANCE)
+        {
+            printf("Amount of the transfer to be created not valid. Insert a value between 0 and %ld \n", MAX_BALANCE);
+            return 1;
+        }
         req_value.transfer = transfer;
         request.length += sizeof(transfer);
     }
@@ -96,7 +112,6 @@ int main(int argc, char *argv[])
 
     write(fd1, &request, sizeof(request));
     close(fd1);
-    printf("sent request\n");
 
     // receive answer
     do
@@ -121,7 +136,12 @@ int main(int argc, char *argv[])
      }
 
     if(timeOut)
+    {
         printf("No reply received in %d seconds \n", FIFO_TIMEOUT_SECS);
+        reply.value.header.ret_code=RC_SRV_TIMEOUT;
+        reply.type=request.type;
+        reply.value.header.account_id=request.value.header.account_id;
+    }
     if(operation == OP_BALANCE)
     {
         printf("Balance: %d€\n", reply.value.balance.balance);
