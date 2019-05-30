@@ -63,8 +63,21 @@ int main(int argc, char *argv[])
   while(!shutdown)
   {
     int numRead = read(fdFIFO, &request, sizeof(tlv_request_t));
-    if(numRead!=sizeof(tlv_request_t))
-      continue;
+    if(numRead==0 && !shutdown)
+    {
+      printf("aqui \n");
+      close(fdFIFO);
+        do {
+          fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
+              if (fdFIFO == -1) sleep(1);
+        } while (fdFIFO == -1 && !shutdown);
+        if(shutdown)
+          break;
+        else 
+          continue;
+    } 
+
+    printf("aqui2");
     int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logRequest(logfile, request.value.header.pid, &request);
     close(logfile);
@@ -118,6 +131,9 @@ int main(int argc, char *argv[])
       close(logfile);
       sendReply(request.value.header.pid, reply);
     }
+
+    if(request.type==OP_SHUTDOWN)
+      break;
   }
 
   for(int i = 1; i <= atoi(argv[1]); i++)
@@ -440,50 +456,42 @@ int create_user_account(uint32_t id, const char *password, uint32_t balance){
   return create_account(id, password, balance);
 }
 
-char *getSha256(char *password)
+char *getSha256(char *password_salt)
 {
-  pid_t pid1, pid2;
+  pid_t pid2;
   int fd1[2], fd2[2];
 
   pipe(fd1);
   pipe(fd2);
-  pid1 = fork();
-  pid2 = fork();
-
+  int out = dup(STDOUT_FILENO);
   char *sha256;
-  sha256 = malloc(HASH_LEN + 1);
+  sha256 = malloc((HASH_LEN + 1)*sizeof(char));
 
-  if (pid1 == 0)
-  {
+  
     dup2(fd1[WRITE], STDOUT_FILENO);
-    close(fd1[READ]);
-    execlp("echo", "echo", "-n", password, NULL);
-    fprintf(stderr, "Failed to execute sha256sum\n");
-    exit(1);
-  }
-  else if (pid1 > 0)
-  {
-    int status;
-    dup2(fd1[READ], STDIN_FILENO);
+    write(STDOUT_FILENO, password_salt, sizeof(char)*(strlen(password_salt)));
     close(fd1[WRITE]);
-    
+    dup2(out, STDOUT_FILENO);
+
+    pid2 = fork();
+
     if (pid2 == 0)
     {
+      dup2(fd1[READ], STDIN_FILENO);
       dup2(fd2[WRITE], STDOUT_FILENO);
-      waitpid(pid1, &status, 0);
       execlp("sha256sum", "sha256sum", NULL);
-      close(fd1[READ]);
     }
     else if (pid2 > 0)
     {
-      int status2;
+      int status;
       close(fd2[WRITE]);
+      waitpid(pid2, &status, 0);
       read(fd2[READ], sha256, HASH_LEN);
-      waitpid(pid2, &status2, 0);
+      close(fd2[READ]);
     }
-  }
 
-  close(fd1[WRITE]);
+  sha256[HASH_LEN] = '\0';
+  printf("%s \n", sha256);
   close(fd1[READ]);
   close(fd2[WRITE]);
   close(fd2[READ]);
