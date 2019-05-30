@@ -22,6 +22,14 @@ int main(int argc, char *argv[])
   fclose(fopen(SERVER_LOGFILE, "w"));
   fclose(fopen(USER_LOGFILE, "w"));
 
+  char *end;
+  strtoul(argv[1], &end, 10);
+  if (*(end + 1) != *(argv[2]))
+  {
+    printf("Invalid number of offices!\n");
+    return RC_OTHER;
+  }
+
   int fdFIFO;
   if(mkfifo(SERVER_FIFO_PATH,0660)<0){
     if (errno==EEXIST) 
@@ -29,14 +37,7 @@ int main(int argc, char *argv[])
     else
       printf("Can't create FIFO\n");
   }
-
-  char* end;
-  strtol(argv[1],&end, 10);
-  if(&end!=(&argv[2])){
-    printf("Invalid ID\n");
-    return RC_OTHER;
-  }
-
+  
   do {
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
         if (fdFIFO == -1) sleep(1);
@@ -72,7 +73,6 @@ int main(int argc, char *argv[])
     int numRead = read(fdFIFO, &request, sizeof(tlv_request_t));
     if(numRead==0 && !shutdown)
     {
-      printf("aqui \n");
       close(fdFIFO);
         do {
           fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
@@ -84,10 +84,10 @@ int main(int argc, char *argv[])
           continue;
     } 
 
-    printf("aqui2");
     int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     logRequest(logfile, request.value.header.pid, &request);
     close(logfile);
+
     int ret;
     if((ret=authenticate(request.value.header.account_id, request.value.header.password))==RC_OK)
     {
@@ -498,7 +498,6 @@ char *getSha256(char *password_salt)
     }
 
   sha256[HASH_LEN] = '\0';
-  printf("%s \n", sha256);
   close(fd1[READ]);
   close(fd2[WRITE]);
   close(fd2[READ]);
@@ -525,9 +524,7 @@ int mutex_unlock(pthread_mutex_t* mutex, int threadID, sync_role_t role, int pid
 
 int mutex_lock_account(int threadID, sync_role_t role, int id)
 {
-  printf("aqui\n");
   pthread_mutex_lock(&accountsMutex[id]);
-  printf("depois\n");
   int logfile= open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
   logSyncMech(logfile, threadID, SYNC_OP_MUTEX_LOCK, role, id);
   close(logfile);

@@ -7,9 +7,23 @@ int main(int argc, char *argv[])
     char fifoName[USER_FIFO_PATH_LEN];
     char pid[WIDTH_ID + 1];
 
-    if (argc < 6)
+    if (argc != 6)
     {
-        printf("Insufficient number of arguments\n");
+        printf("Wrong number of arguments\n");
+        return RC_OTHER;
+    }
+
+    char *end;
+    strtoul(argv[3], &end, 10);
+    if (*(end + 1) != *(argv[4]))
+    {
+        printf("Invalid delay!\n");
+        return RC_OTHER;
+    }
+    strtoul(argv[4], &end, 10);
+    if (*(end + 1) != *(argv[5]))
+    {
+        printf("Invalid operation!\n");
         return RC_OTHER;
     }
 
@@ -65,18 +79,28 @@ int main(int argc, char *argv[])
     if (operation == OP_CREATE_ACCOUNT)
     {
         req_create_account_t account;
-        getAccountArgs(args, &account);
+
+        if(!getAccountArgs(args, &account))
+        {
+            printf("Password of the account to be created not valid. Insert a password with length between %d and %d \n", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN);
+            return RC_OTHER;
+        }
         if(account.balance>MAX_BALANCE || account.balance<MIN_BALANCE)
         {
             printf("Balance of the account to be created not valid. Insert a value between %ld and %ld \n", MIN_BALANCE, MAX_BALANCE);
-            return 1;
+            return RC_OTHER;
         }
-        if(account.account_id>MAX_BANK_ACCOUNTS || account.account_id<1)
+        if(account.account_id>=MAX_BANK_ACCOUNTS || account.account_id<1)
         {
             printf("Id of the account to be created not valid. Insert a value between %d and %d \n", 1, MAX_BANK_ACCOUNTS-1);
-            return 1;
+            return RC_OTHER;
         }
-        
+        if (strlen(account.password) < MIN_PASSWORD_LEN)
+        {
+            printf("Password of the account to be created not valid. Insert a password with length between %d and %d \n", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN);
+            return RC_OTHER;
+        }
+
         req_value.create = account;
         request.length += sizeof(account);
     }
@@ -170,30 +194,47 @@ int main(int argc, char *argv[])
     return RC_OK;
 }
 
-void getAccountArgs(char *args, req_create_account_t *account)
+bool getAccountArgs(char *args, req_create_account_t *account)
 {
     char id[WIDTH_ID + 1]="";
     char balance[WIDTH_BALANCE + 1]="";
     char password[MAX_PASSWORD_LEN+1]="";
 
     for(unsigned int i=0; i < strlen(args); i++){
-        if(args[i] == ' ')
+        if(args[i] == ' '){
+            char *end;
+            unsigned int id_int = strtoul(&args[0], &end, 10);
+            if (*end == args[i])
+                account->account_id = id_int;
+            else
+                account->account_id = MAX_BANK_ACCOUNTS;
             break;
+        }
         id[i]=args[i];
     }
 
     for(unsigned int i=(strlen(id)+1); i < strlen(args); i++){
-         if(args[i] == ' ')
-             break;
-         balance[i-(strlen(id)+1)]=args[i];
+        if (args[i] == ' '){
+            char *end;
+            unsigned int bal_int = strtoul(&args[strlen(id) + 1], &end, 10);
+            if (*end == args[i])
+                account->balance = bal_int;
+            else
+                account->balance = MIN_BALANCE - 1;
+            break;
+        }
+        balance[i - (strlen(id) + 1)] = args[i];
     }
     
-    for(unsigned int i=(strlen(id)+strlen(balance)+2); i < strlen(args); i++){
-        password[i-(strlen(id)+strlen(balance)+2)]=args[i];
+    for (unsigned int i = (strlen(id) + strlen(balance) + 2); i < strlen(args); i++)
+    {
+        if (i - (strlen(id) + strlen(balance) + 2) > 19)
+            return false;
+        password[i - (strlen(id) + strlen(balance) + 2)] = args[i];
     }
-    account->account_id = atoi(id);
-    account->balance = atoi(balance);
-    strncpy(account->password, password, MAX_PASSWORD_LEN+1);
+
+    strncpy(account->password, password, MAX_PASSWORD_LEN + 1);
+    return true;
 }
 
 void getTransferArgs(char* args, req_transfer_t *transfer)
