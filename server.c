@@ -13,9 +13,9 @@ int main(int argc, char *argv[])
 {
   queue = createQueue(MAX_QUEUE_SIZE);
 
-  if (argc < 2)
+  if (argc != 3 )
   {
-    printf("Insufficient number of arguments\n");
+    printf("Wrong number of arguments\n");
     return RC_OTHER;
   }
 
@@ -28,6 +28,13 @@ int main(int argc, char *argv[])
       printf("FIFO '/tmp/secure_srv' already exists\n");
     else
       printf("Can't create FIFO\n");
+  }
+
+  char* end;
+  strtol(argv[1],&end, 10);
+  if(&end!=(&argv[2])){
+    printf("Invalid ID\n");
+    return RC_OTHER;
   }
 
   do {
