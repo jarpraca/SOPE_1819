@@ -30,6 +30,24 @@ int main(int argc, char *argv[])
     return RC_OTHER;
   }
 
+  pthread_t threads[atoi(argv[1])];
+  numThreads = atoi(argv[1]);
+  if (*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
+    return 1;
+
+  int id[atoi(argv[1])];
+  for (int i = 1; i <= atoi(argv[1]); i++)
+  {
+    id[i - 1] = i;
+    pthread_create(&threads[i - 1], NULL, bankOffice, &id[i - 1]);
+  }
+
+  if (create_admin_account(argv[2]) == 1)
+  {
+    printf("Password of the admin account to be created not valid. Insert a password with length between %d and %d \n", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN);
+    return RC_OTHER;
+  }
+
   int fdFIFO;
   if(mkfifo(SERVER_FIFO_PATH,0660)<0){
     if (errno==EEXIST) 
@@ -37,7 +55,7 @@ int main(int argc, char *argv[])
     else
       printf("Can't create FIFO\n");
   }
-  
+
   do {
     fdFIFO=open(SERVER_FIFO_PATH, O_RDONLY);
         if (fdFIFO == -1) sleep(1);
@@ -52,20 +70,6 @@ int main(int argc, char *argv[])
   int emptyValue;
   sem_getvalue(&empty, &emptyValue);
   logSemMech(MAIN_THREAD_ID, SYNC_OP_SEM_INIT , SYNC_ROLE_PRODUCER, 0 , emptyValue);
-
-  pthread_t threads[atoi(argv[1])];
-  numThreads=atoi(argv[1]);
-  if(*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
-    return 1;
-
-  int id[atoi(argv[1])];
-  for(int i = 1; i <= atoi(argv[1]); i++)
-  {
-    id[i-1]=i;
-    pthread_create(&threads[i-1], NULL, bankOffice, &id[i-1]);
-  }
-
-  create_admin_account(argv[2]);
 
   tlv_request_t request;
   while(!shutdown)
@@ -428,8 +432,9 @@ int create_account(uint32_t id, const char *password, uint32_t balance)
 }
 
 int create_admin_account(const char *password){
-  if (strlen(password) > MAX_PASSWORD_LEN + 1 || strlen(password) < MIN_PASSWORD_LEN)
+  if (strlen(password) > MAX_PASSWORD_LEN || strlen(password) < MIN_PASSWORD_LEN){
     return 1;
+  }
 
   logDelaySync(MAIN_THREAD_ID, 0, 0);
 
