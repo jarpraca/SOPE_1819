@@ -14,6 +14,13 @@ int main(int argc, char *argv[])
     }
 
     char *end;
+    strtoul(argv[1], &end, 10);
+    if (*(end + 1) != *(argv[2]))
+    {
+        printf("Invalid id!\n");
+        return RC_OTHER;
+    }
+
     strtoul(argv[3], &end, 10);
     if (*(end + 1) != *(argv[4]))
     {
@@ -26,6 +33,7 @@ int main(int argc, char *argv[])
         printf("Invalid operation!\n");
         return RC_OTHER;
     }
+    
 
     int id = atoi(argv[1]);
     char *password = argv[2];
