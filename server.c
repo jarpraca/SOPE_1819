@@ -23,20 +23,19 @@ int main(int argc, char *argv[])
   fclose(fopen(USER_LOGFILE, "w"));
 
   char *end;
-  strtoul(argv[1], &end, 10);
+  numThreads = strtoul(argv[1], &end, 10);
   if (*(end + 1) != *(argv[2]))
   {
     printf("Invalid number of offices!\n");
     return RC_OTHER;
   }
 
-  pthread_t threads[atoi(argv[1])];
-  numThreads = atoi(argv[1]);
-  if (*argv[1] < 1 || atoi(argv[1]) > MAX_BANK_OFFICES)
+  if (numThreads < 1 || numThreads > MAX_BANK_OFFICES)
     return 1;
+  pthread_t threads[numThreads];
 
-  int id[atoi(argv[1])];
-  for (int i = 1; i <= atoi(argv[1]); i++)
+  int id[numThreads];
+  for (int i = 1; i <= numThreads; i++)
   {
     id[i - 1] = i;
     pthread_create(&threads[i - 1], NULL, bankOffice, &id[i - 1]);
