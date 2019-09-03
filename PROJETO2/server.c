@@ -79,7 +79,10 @@ int main(int argc, char *argv[])
   while(!shutdown)
   {
     int numRead = read(fdFIFO, &request, sizeof(tlv_request_t));
-    if(numRead==0 && !shutdown)
+    if(request.type==OP_SHUTDOWN){
+      close(fdFIFO);
+    }
+    else if(numRead==0 && !shutdown)
     {
       close(fdFIFO);
         do {
@@ -142,9 +145,6 @@ int main(int argc, char *argv[])
       value.header = header;
       reply.value=value;
       reply.length=sizeof(header);
-      int logfile = open(SERVER_LOGFILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
-      logReply(logfile, MAIN_THREAD_ID, &reply);
-      close(logfile);
       sendReply(request.value.header.pid, reply);
     }
   }
@@ -339,7 +339,7 @@ int processRequest(tlv_request_t* request, int threadID)
       {
         header.ret_code = RC_OK;
         shutdown=true;
-        for(int i=0; i<(numThreads-1)*2; i++)
+        for(int i=0; i<(numThreads-1); i++)
           sem_post(&full);
         reply.length+= sizeof(shutdownRep);
         shutdownRep.active_offices = active_bank_offices;

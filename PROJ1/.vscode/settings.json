@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "errno.h": "c",
+        "md5.h": "c",
+        "opensslconf.h": "c"
+    }
+}
